@@ -35,6 +35,8 @@ docs/
 # 设计/计划文档（但 README.md 必须进版本库）
 *.md
 !README.md
+# go:embed 内置的默认系统提示词，缺了它 internal/prompt 编译不过
+!internal/prompt/defaultprompt.md
 
 # Windows binaries
 /wb2api.exe
