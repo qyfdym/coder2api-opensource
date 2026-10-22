@@ -1,0 +1,185 @@
+{
+ "derive_id": [
+  [
+   "00000000-0000-4000-8000-000000000001",
+   "machine",
+   "babc0b20-1a50-42db-aedf-8761b7890884"
+  ],
+  [
+   "00000000-0000-4000-8000-000000000001",
+   "session",
+   "21c0def2-cfaa-4974-ac5d-03731983da6b"
+  ],
+  [
+   "00000000-0000-4000-8000-000000000001",
+   "machinetype",
+   "072bcb4c-e4b9-43bc-a743-e6dfe41da0fa"
+  ],
+  [
+   "",
+   "machine",
+   "fc1f3f60-3c8b-4dc0-a839-42ea0169ab1e"
+  ],
+  [
+   "",
+   "session",
+   "be4befa7-ace5-45fd-a1f5-8bb31be975f8"
+  ],
+  [
+   "",
+   "machinetype",
+   "c8ea195d-2841-47c2-af54-d1a545d55453"
+  ],
+  [
+   "abc",
+   "machine",
+   "7bc53776-2aa2-477b-acc9-582806571554"
+  ],
+  [
+   "abc",
+   "session",
+   "32607b0d-cb9d-4a58-abe9-13b473137833"
+  ],
+  [
+   "abc",
+   "machinetype",
+   "050ded5e-4572-417f-af32-e8aa649eda88"
+  ]
+ ],
+ "machine_type": [
+  [
+   "00000000-0000-4000-8000-000000000001",
+   "072bcb4ce4b943bca7"
+  ],
+  [
+   "",
+   "c8ea195d284147c2af"
+  ],
+  [
+   "abc",
+   "050ded5e4572417faf"
+  ]
+ ],
+ "machine_token": [
+  [
+   "00000000-0000-4000-8000-000000000001",
+   "Ft4Rnpzp9OpG6WwWI7V_HCufQkRCXLir6ceb12l7yaM"
+  ],
+  [
+   "",
+   "HyjNtGtrc0r5FhrLxRhNVmrJ1uypzw1ICcGMaUG74Ar"
+  ],
+  [
+   "abc",
+   "g7XFuidOfNP5hSYlR7sAPy2MtmhWu_YG4FkkdqWICxy"
+  ]
+ ],
+ "hostname": [
+  [
+   "00000000-0000-4000-8000-000000000001",
+   "DESKTOP-AF8C306"
+  ],
+  [
+   "",
+   "DESKTOP-D72F009"
+  ],
+  [
+   "abc",
+   "DESKTOP-36E8B03"
+  ]
+ ],
+ "encode": [
+  [
+   "",
+   ""
+  ],
+  [
+   "YQ==",
+   "$p$#"
+  ],
+  [
+   "YWI=",
+   "$SB#"
+  ],
+  [
+   "YWJj",
+   "MSK#"
+  ],
+  [
+   "aGVsbG8gd29ybGQ=",
+   "YuHp$Hq&J(WPHFru"
+  ],
+  [
+   "5Lit5paHIGJvZHkgeyJrIjoxfQ==",
+   "UBMn%ep$$HKbDZz&mYKQG*tQ)PZB"
+  ],
+  [
+   "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/w==",
+   "YtUsAfruc^tGS(tX*QhUhqbuy!fVZofq@g%reBYNUG^Vkl^WRCwtva.Jux(jEP(W^Jkt!&ImGMQlxOQAM)yhbrXmXbqvZYq!@.WbeIAeUX!vkA!f$$FSF.iDSLtNxFQe#Hg*#(CLDOJnPS)UuH.hukd%NEjwJxDkmZLymk%WeEA_&#cRiBSHiI*K*nhVM#yvzKH,zQ,FL)m#ODsuEK(mEyoinslz)PPEscOssy__To_fpgd&NBopnGR_wlR%_CTiVagC#xHdzPH%fJZiq&B,BMKoaOKY&)c*rrG,IbVRTYV^p.jMNIl@nXvRwAvwddpzjTCaDZ,TLc,w%j@zWpaFK@Fg"
+  ]
+ ],
+ "sorted_compact": [
+  [
+   {
+    "b": "2",
+    "a": "1"
+   },
+   "{\"a\":\"1\",\"b\":\"2\"}"
+  ],
+  [
+   {
+    "name": "昵称\"引号\\反斜杠\n换行\t",
+    "aid": "x",
+    "yx_uid": "",
+    "z": ""
+   },
+   "{\"aid\":\"x\",\"name\":\"昵称\\\"引号\\\\反斜杠\\n换行\\t\",\"yx_uid\":\"\",\"z\":\"\"}"
+  ],
+  [
+   {
+    "cosyVersion": "1.1.64",
+    "ideVersion": "",
+    "info": "abc==",
+    "requestId": "r",
+    "version": "v1"
+   },
+   "{\"cosyVersion\":\"1.1.64\",\"ideVersion\":\"\",\"info\":\"abc==\",\"requestId\":\"r\",\"version\":\"v1\"}"
+  ],
+  [
+   {
+    "ctl": "\u0001\u001f",
+    "emoji": "😀",
+    "slash": "a/b<c>&"
+   },
+   "{\"ctl\":\"\\u0001\\u001f\",\"emoji\":\"😀\",\"slash\":\"a/b<c>&\"}"
+  ]
+ ],
+ "aes_cbc": [
+  [
+   "",
+   "0123456789abcdef",
+   "7Uf+4FRcP6fdBw1EuG6Y2Q=="
+  ],
+  [
+   "c2hvcnQ=",
+   "0123456789abcdef",
+   "fYPNBWp3r9ESqwbDqdCBdg=="
+  ],
+  [
+   "ZXhhY3RseTE2Ynl0ZXMhIQ==",
+   "0123456789abcdef",
+   "y71hV/S6fSvtxWrZpe/dipOhFCDs/YuN736uqjh6lSU="
+  ],
+  [
+   "eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eA==",
+   "0123456789abcdef",
+   "y0llo51w6nQBY+ECS5Da1aPH2xF0zwcG/vzE4pNxfGgNh/x5pklOD6SuiGRnOPofyLj660RruqDZ9mmaVpZz2bNcQ7qoRMuMCTa82E+vwLVz0qgtfv92aweKt5B0HStDn+IWMfM9jRgfKlgYO90Hiw=="
+  ]
+ ],
+ "md5_sig": [
+  "payloadB64\ncosyKey\n1700000000\n{\"a\":1}\n/api/v2/service/pro/sse/agent_chat_generation",
+  "752702b9b702c64a8b9bed288f5bc6b2"
+ ],
+ "rsa_n_bits": 1024,
+ "rsa_e": 65537
+}

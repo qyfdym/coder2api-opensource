@@ -1,0 +1,1894 @@
+{
+ "pkce": [
+  [
+   "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-.",
+   "g6NNy7wobeyYBaGGO5BQU8EPI3owYTG1KE6Nqe6R-TM"
+  ],
+  [
+   "0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc0126",
+   "LwT4b_jOzW7eBmR2Z-hEpU5c~kHsX8fCnKva.iFqNydAlItQ1gDoLwT4jGrOzWBm",
+   "6XhkC2yOU57G0NWCmvuc2y1-jwQplCM8vz_InbDUu9w"
+  ],
+  [
+   "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "5555555555555555555555555555555555555555555555555555555555555555",
+   "kRh4sf-Uptrsq6HX72_aC5cRahYpE4lCe0AqAToq558"
+  ]
+ ],
+ "auth_url": [
+  {
+   "realm": "cn",
+   "uuid": "12345678-1234-4234-8234-1234567890ab",
+   "machine_id": "0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0",
+   "raw_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+   "auth_url": "https://qoder.com.cn/device/selectAccounts?challenge=g6NNy7wobeyYBaGGO5BQU8EPI3owYTG1KE6Nqe6R-TM&challenge_method=S256&nonce=12345678-1234-4234-8234-1234567890ab&redirect_uri=qoder-work-cn%3A%2F%2F&client_id=1c5e33e1-364d-4ce6-b02c-acaa81274a5c&machine_id=0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0",
+   "verifier": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-.",
+   "nonce": "12345678-1234-4234-8234-1234567890ab"
+  },
+  {
+   "realm": "intl",
+   "uuid": "12345678-1234-4234-8234-1234567890ab",
+   "machine_id": "0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0",
+   "raw_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+   "auth_url": "https://qoder.com/device/selectAccounts?challenge=g6NNy7wobeyYBaGGO5BQU8EPI3owYTG1KE6Nqe6R-TM&challenge_method=S256&nonce=123456781234423482341234567890ab&client_id=e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb&machine_id=0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0",
+   "verifier": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-.",
+   "nonce": "123456781234423482341234567890ab"
+  }
+ ],
+ "credits": [
+  {
+   "name": "personal_cn",
+   "body": {
+    "userQuota": {
+     "used": 120,
+     "remaining": 880,
+     "total": 1000
+    },
+    "addOnQuota": {
+     "used": 0,
+     "remaining": 300,
+     "total": 300
+    },
+    "isQuotaExceeded": false,
+    "totalUsagePercentage": 9.23,
+    "expiresAt": 253402214400
+   },
+   "ok": true,
+   "credits": {
+    "remain": 1180,
+    "remain_effective": 1180,
+    "used": 120,
+    "size": 1300,
+    "exceeded": false,
+    "usage_pct": 9.23,
+    "expires_at": 253402214,
+    "shared": null,
+    "packages": [
+     {
+      "name": "基础额度",
+      "remain": 880,
+      "used": 120,
+      "size": 1000
+     },
+     {
+      "name": "赠送/签到额度",
+      "remain": 300,
+      "used": 0,
+      "size": 300
+     }
+    ]
+   }
+  },
+  {
+   "name": "team_shared",
+   "body": {
+    "userQuota": {
+     "used": 1000,
+     "remaining": 0,
+     "total": 1000
+    },
+    "addOnQuota": {
+     "used": 50,
+     "remaining": 50,
+     "total": 100
+    },
+    "orgResourcePackage": {
+     "used": 1548,
+     "remaining": 952,
+     "percentage": 0.62,
+     "unit": "credits",
+     "cap": 2500,
+     "available": true
+    },
+    "isQuotaExceeded": true,
+    "totalUsagePercentage": 100,
+    "expiresAt": 1793000000000
+   },
+   "ok": true,
+   "credits": {
+    "remain": 50,
+    "remain_effective": 1002,
+    "used": 1050,
+    "size": 1100,
+    "exceeded": true,
+    "usage_pct": 100,
+    "expires_at": 1793000000,
+    "shared": {
+     "remain": 952,
+     "used": 1548,
+     "size": 2500,
+     "available": true,
+     "source": "orgResourcePackage"
+    },
+    "packages": [
+     {
+      "name": "基础额度",
+      "remain": 0,
+      "used": 1000,
+      "size": 1000
+     },
+     {
+      "name": "赠送/签到额度",
+      "remain": 50,
+      "used": 50,
+      "size": 100
+     },
+     {
+      "name": "共享额度",
+      "remain": 952,
+      "used": 1548,
+      "size": 2500,
+      "available": true,
+      "source": "orgResourcePackage"
+     }
+    ]
+   }
+  },
+  {
+   "name": "shared_unavailable_str",
+   "body": {
+    "userQuota": {
+     "used": 1,
+     "remaining": 9,
+     "total": 10
+    },
+    "addOnQuota": {},
+    "orgResourcePackage": {
+     "used": 0,
+     "remaining": 500,
+     "cap": 500,
+     "available": "false"
+    }
+   },
+   "ok": true,
+   "credits": {
+    "remain": 9,
+    "remain_effective": 9,
+    "used": 1,
+    "size": 10,
+    "exceeded": false,
+    "usage_pct": null,
+    "expires_at": 0,
+    "shared": {
+     "remain": 500,
+     "used": 0,
+     "size": 500,
+     "available": false,
+     "source": "orgResourcePackage"
+    },
+    "packages": [
+     {
+      "name": "基础额度",
+      "remain": 9,
+      "used": 1,
+      "size": 10
+     },
+     {
+      "name": "赠送/签到额度",
+      "remain": 0,
+      "used": 0,
+      "size": 0
+     },
+     {
+      "name": "共享额度",
+      "remain": 500,
+      "used": 0,
+      "size": 500,
+      "available": false,
+      "source": "orgResourcePackage"
+     }
+    ]
+   }
+  },
+  {
+   "name": "shared_available_null",
+   "body": {
+    "userQuota": {
+     "used": 1,
+     "remaining": 9,
+     "total": 10
+    },
+    "orgResourcePackage": {
+     "used": 0,
+     "remaining": 500,
+     "total": 600,
+     "available": null
+    }
+   },
+   "ok": true,
+   "credits": {
+    "remain": 9,
+    "remain_effective": 509,
+    "used": 1,
+    "size": 10,
+    "exceeded": false,
+    "usage_pct": null,
+    "expires_at": 0,
+    "shared": {
+     "remain": 500,
+     "used": 0,
+     "size": 600,
+     "available": true,
+     "source": "orgResourcePackage"
+    },
+    "packages": [
+     {
+      "name": "基础额度",
+      "remain": 9,
+      "used": 1,
+      "size": 10
+     },
+     {
+      "name": "赠送/签到额度",
+      "remain": 0,
+      "used": 0,
+      "size": 0
+     },
+     {
+      "name": "共享额度",
+      "remain": 500,
+      "used": 0,
+      "size": 600,
+      "available": true,
+      "source": "orgResourcePackage"
+     }
+    ]
+   }
+  },
+  {
+   "name": "shared_unlimited",
+   "body": {
+    "userQuota": {
+     "used": 10,
+     "remaining": 0,
+     "total": 10
+    },
+    "addOnQuota": {
+     "used": 0,
+     "remaining": 0,
+     "total": 0
+    },
+    "orgResourcePackage": {
+     "used": 0,
+     "remaining": 1000000,
+     "cap": -1,
+     "available": true
+    },
+    "isQuotaExceeded": false
+   },
+   "ok": true,
+   "credits": {
+    "remain": 0,
+    "remain_effective": 0,
+    "used": 10,
+    "size": 10,
+    "exceeded": false,
+    "usage_pct": null,
+    "expires_at": 0,
+    "shared": {
+     "remain": 1000000,
+     "used": 0,
+     "size": -1,
+     "available": true,
+     "source": "orgResourcePackage",
+     "unlimited": true
+    },
+    "packages": [
+     {
+      "name": "基础额度",
+      "remain": 0,
+      "used": 10,
+      "size": 10
+     },
+     {
+      "name": "赠送/签到额度",
+      "remain": 0,
+      "used": 0,
+      "size": 0
+     },
+     {
+      "name": "共享额度",
+      "remain": 1000000,
+      "used": 0,
+      "size": -1,
+      "available": true,
+      "source": "orgResourcePackage",
+      "unlimited": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "shared_numeric",
+   "body": {
+    "userQuota": {
+     "used": 5,
+     "remaining": 5,
+     "total": 10
+    },
+    "addOnQuota": {
+     "used": 0,
+     "remaining": 0,
+     "total": 0
+    },
+    "teamQuota": 777
+   },
+   "ok": true,
+   "credits": {
+    "remain": 5,
+    "remain_effective": 782,
+    "used": 5,
+    "size": 10,
+    "exceeded": false,
+    "usage_pct": null,
+    "expires_at": 0,
+    "shared": {
+     "remain": 777,
+     "used": 0,
+     "size": 777,
+     "available": true,
+     "source": "teamQuota"
+    },
+    "packages": [
+     {
+      "name": "基础额度",
+      "remain": 5,
+      "used": 5,
+      "size": 10
+     },
+     {
+      "name": "赠送/签到额度",
+      "remain": 0,
+      "used": 0,
+      "size": 0
+     },
+     {
+      "name": "共享额度",
+      "remain": 777,
+      "used": 0,
+      "size": 777,
+      "available": true,
+      "source": "teamQuota"
+     }
+    ]
+   }
+  },
+  {
+   "name": "fractional_strings",
+   "body": {
+    "userQuota": {
+     "used": "10.6",
+     "remaining": "89.7",
+     "total": "100.3"
+    },
+    "addOnQuota": {
+     "used": 0.4,
+     "remaining": 0.4,
+     "total": 0.8,
+     "expiresAt": 1795000000,
+     "daysLeft": 12,
+     "packageCode": "CHECKIN"
+    },
+    "isQuotaExceeded": "false",
+    "expiresAt": "1795000000000"
+   },
+   "ok": true,
+   "credits": {
+    "remain": 90,
+    "remain_effective": 90,
+    "used": 11,
+    "size": 101,
+    "exceeded": true,
+    "usage_pct": null,
+    "expires_at": 1795000000,
+    "shared": null,
+    "packages": [
+     {
+      "name": "基础额度",
+      "remain": 89,
+      "used": 10,
+      "size": 100
+     },
+     {
+      "name": "赠送/签到额度",
+      "remain": 0,
+      "used": 0,
+      "size": 0,
+      "expires_at": 1795000000,
+      "days_left": 12,
+      "package_code": "CHECKIN"
+     }
+    ]
+   }
+  },
+  {
+   "name": "degenerate_exceeded_zero",
+   "body": {
+    "userQuota": {
+     "used": 0,
+     "remaining": 0,
+     "total": 0
+    },
+    "addOnQuota": {
+     "used": 0,
+     "remaining": 0,
+     "total": 0
+    },
+    "isQuotaExceeded": true,
+    "expiresAt": 253402214400
+   },
+   "ok": false,
+   "reason": "exceeded=true with zero size/remain"
+  },
+  {
+   "name": "degenerate_both_missing",
+   "body": {
+    "isQuotaExceeded": false,
+    "foo": 1
+   },
+   "ok": false,
+   "reason": "both quota objects missing"
+  },
+  {
+   "name": "exhausted_real",
+   "body": {
+    "userQuota": {
+     "used": 1000,
+     "remaining": 0,
+     "total": 1000
+    },
+    "addOnQuota": {
+     "used": 0,
+     "remaining": 0,
+     "total": 0
+    },
+    "isQuotaExceeded": true
+   },
+   "ok": true,
+   "credits": {
+    "remain": 0,
+    "remain_effective": 0,
+    "used": 1000,
+    "size": 1000,
+    "exceeded": true,
+    "usage_pct": null,
+    "expires_at": 0,
+    "shared": null,
+    "packages": [
+     {
+      "name": "基础额度",
+      "remain": 0,
+      "used": 1000,
+      "size": 1000
+     },
+     {
+      "name": "赠送/签到额度",
+      "remain": 0,
+      "used": 0,
+      "size": 0
+     }
+    ]
+   }
+  }
+ ],
+ "headers": {
+  "uid": "u-test-0001",
+  "plain": {
+   "Content-Type": "application/json",
+   "Accept": "application/json, text/plain, */*",
+   "User-Agent": "QoderWork/1.1.64",
+   "Authorization": "Bearer dt-fake",
+   "X-Machine-ID": "10f849fb-94cf-4f0b-afb5-2fa1e32f63e5",
+   "X-Session-ID": "b0606007-caab-4561-aea2-49fa01fba826",
+   "Origin": "https://qoder.com.cn",
+   "Referer": "https://qoder.com.cn/"
+  },
+  "desktop_omitted": {
+   "Content-Type": "application/json",
+   "Accept": "application/json, text/plain, */*",
+   "User-Agent": "Qoder",
+   "Authorization": "Bearer dt-fake",
+   "X-Machine-ID": "10f849fb-94cf-4f0b-afb5-2fa1e32f63e5",
+   "X-Session-ID": "b0606007-caab-4561-aea2-49fa01fba826",
+   "Origin": "https://qoder.com.cn",
+   "Referer": "https://qoder.com.cn/",
+   "cosy-clienttype": "10",
+   "cosy-version": "0.4.3"
+  },
+  "desktop_native": {
+   "Content-Type": "application/json",
+   "Accept": "application/json, text/plain, */*",
+   "User-Agent": "Qoder",
+   "Authorization": "Bearer dt-fake",
+   "X-Machine-ID": "10f849fb-94cf-4f0b-afb5-2fa1e32f63e5",
+   "X-Session-ID": "b0606007-caab-4561-aea2-49fa01fba826",
+   "Origin": "https://qoder.com.cn",
+   "Referer": "https://qoder.com.cn/",
+   "cosy-clienttype": "10",
+   "cosy-version": "0.4.3",
+   "cosy-machineid": "10f849fb-94cf-4f0b-afb5-2fa1e32f63e5",
+   "cosy-machinetoken": "tok-native",
+   "cosy-machinetype": "type-native",
+   "cosy-machinecode": "code-native",
+   "cosy-machineos": "x86_64_win32",
+   "cosy-machinehostname": "DESKTOP-QODER"
+  },
+  "desktop_version": "0.4.3"
+ },
+ "checkin": [
+  {
+   "name": "claim_ok",
+   "only_daily": true,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     200,
+     "{\"showCampaign\": true, \"claimable\": true, \"campaignUrl\": \"https://qoder.com.cn/activities\", \"campaigns\": [{\"campaignId\": \"c1\", \"campaignKey\": \"act-20260930\", \"claimStatus\": \"CLAIMABLE\", \"actionType\": \"CLAIM_BENEFIT\", \"benefit\": {\"kind\": \"CREDITS\", \"amount\": 100}, \"startAt\": 1790000000000, \"endAt\": 1890000000000, \"placements\": [{\"content\": {\"zh\": {\"title\": \"\\u6bcf\\u5929\\u9886 100 Credits\", \"description\": \"\", \"detailUrl\": \"https://docs.qoder.com.cn/events/act-20260930\", \"buttonText\": \"\\u9886\\u53d6\"}, \"en\": {\"title\": \"EN act-20260930\"}}, \"campaignUrl\": \"https://qoder.com.cn/activities\"}]}]}"
+    ],
+    "POST /sash/api/v1/me/campaigns/c1/claim": [
+     200,
+     "{\"status\": \"CLAIMED\", \"grantId\": \"g1\", \"benefit\": {\"amount\": 100}}"
+    ]
+   },
+   "ok": true,
+   "earned": 100,
+   "message": "活动领取成功 +100 Credits（每天领 100 Credits）",
+   "claimed": [
+    "每天领 100 Credits"
+   ],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "✓ [tester] 活动领取成功 +100 Credits（每天领 100 Credits）",
+    "  当前额度余额: 1000"
+   ],
+   "stamped": true,
+   "codes": {},
+   "blocked": [],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "POST /sash/api/v1/me/campaigns/c1/claim",
+    "GET /api/v2/quota/usage",
+    "GET /api/v2/user/plan"
+   ]
+  },
+  {
+   "name": "claim_ok_no_title",
+   "only_daily": false,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     200,
+     "{\"showCampaign\": true, \"claimable\": true, \"campaignUrl\": \"https://qoder.com.cn/activities\", \"campaigns\": [{\"campaignId\": \"c6\", \"campaignKey\": \"act-20260901-922\", \"claimStatus\": \"CLAIMABLE\", \"actionType\": \"CLAIM_BENEFIT\", \"benefit\": {\"kind\": \"CREDITS\", \"amount\": 100}, \"startAt\": 1790000000000, \"endAt\": 1890000000000, \"placements\": [{\"content\": {\"zh\": {\"title\": \"\", \"description\": \"\", \"detailUrl\": \"https://docs.qoder.com.cn/events/act-20260901-922\", \"buttonText\": \"\\u9886\\u53d6\"}, \"en\": {\"title\": \"EN act-20260901-922\"}}, \"campaignUrl\": \"https://qoder.com.cn/activities\"}]}]}"
+    ],
+    "POST /sash/api/v1/me/campaigns/c6/claim": [
+     200,
+     "{\"status\": \"GRANTED\", \"benefit\": {\"amount\": 50}}"
+    ]
+   },
+   "ok": true,
+   "earned": 50,
+   "message": "活动领取成功 +50 Credits（act-20260901-922）",
+   "claimed": [
+    "act-20260901-922"
+   ],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "✓ [tester] 活动领取成功 +50 Credits（act-20260901-922）",
+    "  当前额度余额: 1000"
+   ],
+   "stamped": true,
+   "codes": {},
+   "blocked": [],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "POST /sash/api/v1/me/campaigns/c6/claim",
+    "GET /api/v2/quota/usage",
+    "GET /api/v2/user/plan"
+   ]
+  },
+  {
+   "name": "already_claimed",
+   "only_daily": true,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     200,
+     "{\"showCampaign\": true, \"claimable\": true, \"campaignUrl\": \"https://qoder.com.cn/activities\", \"campaigns\": [{\"campaignId\": \"c1\", \"campaignKey\": \"act-20260930\", \"claimStatus\": \"CLAIMED\", \"actionType\": \"CLAIM_BENEFIT\", \"benefit\": {\"kind\": \"CREDITS\", \"amount\": 100}, \"startAt\": 1790000000000, \"endAt\": 1890000000000, \"placements\": [{\"content\": {\"zh\": {\"title\": \"\\u6bcf\\u5929\\u9886 100 Credits\", \"description\": \"\", \"detailUrl\": \"https://docs.qoder.com.cn/events/act-20260930\", \"buttonText\": \"\\u9886\\u53d6\"}, \"en\": {\"title\": \"EN act-20260930\"}}, \"campaignUrl\": \"https://qoder.com.cn/activities\"}]}]}"
+    ]
+   },
+   "ok": true,
+   "earned": 0,
+   "message": "今日活动奖励已领取（每天领 100 Credits）",
+   "claimed": [],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "✓ [tester] 今日活动奖励已领取（每天领 100 Credits）",
+    "  当前额度余额: 1000"
+   ],
+   "stamped": true,
+   "codes": {},
+   "blocked": [],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "GET /api/v2/quota/usage",
+    "GET /api/v2/user/plan"
+   ]
+  },
+  {
+   "name": "claim_replayed_409",
+   "only_daily": true,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     200,
+     "{\"showCampaign\": true, \"claimable\": true, \"campaignUrl\": \"https://qoder.com.cn/activities\", \"campaigns\": [{\"campaignId\": \"c1\", \"campaignKey\": \"act-20260930\", \"claimStatus\": \"CLAIMABLE\", \"actionType\": \"CLAIM_BENEFIT\", \"benefit\": {\"kind\": \"CREDITS\", \"amount\": 100}, \"startAt\": 1790000000000, \"endAt\": 1890000000000, \"placements\": [{\"content\": {\"zh\": {\"title\": \"\\u6bcf\\u5929\\u9886 100 Credits\", \"description\": \"\", \"detailUrl\": \"https://docs.qoder.com.cn/events/act-20260930\", \"buttonText\": \"\\u9886\\u53d6\"}, \"en\": {\"title\": \"EN act-20260930\"}}, \"campaignUrl\": \"https://qoder.com.cn/activities\"}]}]}"
+    ],
+    "POST /sash/api/v1/me/campaigns/c1/claim": [
+     409,
+     "{\"errorCode\": \"ALREADY_CLAIMED\"}"
+    ]
+   },
+   "ok": true,
+   "earned": 0,
+   "message": "今日活动奖励已领取（每天领 100 Credits）",
+   "claimed": [],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "✓ [tester] 今日活动奖励已领取（每天领 100 Credits）",
+    "  当前额度余额: 1000"
+   ],
+   "stamped": true,
+   "codes": {},
+   "blocked": [],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "POST /sash/api/v1/me/campaigns/c1/claim",
+    "GET /api/v2/quota/usage",
+    "GET /api/v2/user/plan"
+   ]
+  },
+  {
+   "name": "out_of_stock_listed",
+   "only_daily": false,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     200,
+     "{\"showCampaign\": true, \"claimable\": true, \"campaignUrl\": \"https://qoder.com.cn/activities\", \"campaigns\": [{\"campaignId\": \"c2\", \"campaignKey\": \"act-20260928-620\", \"claimStatus\": \"NOT_ELIGIBLE\", \"actionType\": \"CLAIM_BENEFIT\", \"benefit\": {\"kind\": \"REDEMPTION_CODE\", \"amount\": 1}, \"startAt\": 1790000000000, \"endAt\": 1890000000000, \"placements\": [{\"content\": {\"zh\": {\"title\": \"\\u5976\\u8336\\u514d\\u5355\\u5361\", \"description\": \"\", \"detailUrl\": \"https://docs.qoder.com.cn/events/act-20260928-620\", \"buttonText\": \"\\u9886\\u53d6\"}, \"en\": {\"title\": \"EN act-20260928-620\"}}, \"campaignUrl\": \"https://qoder.com.cn/activities\"}], \"unavailableReason\": \"REDEMPTION_CODE_OUT_OF_STOCK\"}]}"
+    ]
+   },
+   "ok": true,
+   "earned": 0,
+   "message": "名额已发完，次日 10:00 后可再领：无门槛任务（活动 act-20260928-620）",
+   "claimed": [],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "— [tester] 名额已发完，次日 10:00 后可再领：无门槛任务（活动 act-20260928-620）",
+    "⏳ [tester] 奶茶免单卡：今日名额已发完，次日 10:00 后自动重试",
+    "  当前额度余额: 1000"
+   ],
+   "stamped": false,
+   "codes": {},
+   "blocked": [],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "GET /api/v2/quota/usage",
+    "GET /api/v2/user/plan"
+   ]
+  },
+  {
+   "name": "out_of_stock_on_claim",
+   "only_daily": true,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     200,
+     "{\"showCampaign\": true, \"claimable\": true, \"campaignUrl\": \"https://qoder.com.cn/activities\", \"campaigns\": [{\"campaignId\": \"c1\", \"campaignKey\": \"act-20260930\", \"claimStatus\": \"CLAIMABLE\", \"actionType\": \"CLAIM_BENEFIT\", \"benefit\": {\"kind\": \"CREDITS\", \"amount\": 100}, \"startAt\": 1790000000000, \"endAt\": 1890000000000, \"placements\": [{\"content\": {\"zh\": {\"title\": \"\\u6bcf\\u5929\\u9886 100 Credits\", \"description\": \"\", \"detailUrl\": \"https://docs.qoder.com.cn/events/act-20260930\", \"buttonText\": \"\\u9886\\u53d6\"}, \"en\": {\"title\": \"EN act-20260930\"}}, \"campaignUrl\": \"https://qoder.com.cn/activities\"}]}]}"
+    ],
+    "POST /sash/api/v1/me/campaigns/c1/claim": [
+     200,
+     "{\"status\": \"NOT_ELIGIBLE\", \"failureCode\": \"REDEMPTION_CODE_OUT_OF_STOCK\"}"
+    ]
+   },
+   "ok": true,
+   "earned": 0,
+   "message": "名额已发完，次日 10:00 后可再领：无门槛任务（活动 act-20260930）",
+   "claimed": [],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "— [tester] 名额已发完，次日 10:00 后可再领：无门槛任务（活动 act-20260930）",
+    "⏳ [tester] 每天领 100 Credits：今日名额已发完，次日 10:00 后自动重试",
+    "  当前额度余额: 1000"
+   ],
+   "stamped": false,
+   "codes": {},
+   "blocked": [],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "POST /sash/api/v1/me/campaigns/c1/claim",
+    "GET /api/v2/quota/usage",
+    "GET /api/v2/user/plan"
+   ]
+  },
+  {
+   "name": "blocked_same_person",
+   "only_daily": true,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     200,
+     "{\"showCampaign\": true, \"claimable\": true, \"campaignUrl\": \"https://qoder.com.cn/activities\", \"campaigns\": [{\"campaignId\": \"c1\", \"campaignKey\": \"act-20260930\", \"claimStatus\": \"CLAIMABLE\", \"actionType\": \"CLAIM_BENEFIT\", \"benefit\": {\"kind\": \"CREDITS\", \"amount\": 100}, \"startAt\": 1790000000000, \"endAt\": 1890000000000, \"placements\": [{\"content\": {\"zh\": {\"title\": \"\\u6bcf\\u5929\\u9886 100 Credits\", \"description\": \"\", \"detailUrl\": \"https://docs.qoder.com.cn/events/act-20260930\", \"buttonText\": \"\\u9886\\u53d6\"}, \"en\": {\"title\": \"EN act-20260930\"}}, \"campaignUrl\": \"https://qoder.com.cn/activities\"}]}]}"
+    ],
+    "POST /sash/api/v1/me/campaigns/c1/claim": [
+     200,
+     "{\"status\": \"BLOCKED\", \"failureCode\": \"SAME_PERSON_ALREADY_CLAIMED\", \"benefit\": {\"amount\": 100}}"
+    ]
+   },
+   "ok": true,
+   "earned": 0,
+   "message": "同人已领取：同一设备/身份下的其他账号本轮已领过（服务端按人去重，failureCode=SAME_PERSON_ALREADY_CLAIMED）",
+   "claimed": [],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "⚠ [tester] 同人已领取：同一设备/身份下其他账号本轮已领（服务端按人去重，SAME_PERSON_ALREADY_CLAIMED），本号本轮不再发放",
+    "  当前额度余额: 1000"
+   ],
+   "stamped": false,
+   "codes": {},
+   "blocked": [
+    "c1"
+   ],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "POST /sash/api/v1/me/campaigns/c1/claim",
+    "GET /api/v2/quota/usage",
+    "GET /api/v2/user/plan"
+   ]
+  },
+  {
+   "name": "preblocked_cooldown",
+   "only_daily": true,
+   "account": {
+    "campaignBlockedUntil": {
+     "c1": "__FUTURE__"
+    }
+   },
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     200,
+     "{\"showCampaign\": true, \"claimable\": true, \"campaignUrl\": \"https://qoder.com.cn/activities\", \"campaigns\": [{\"campaignId\": \"c1\", \"campaignKey\": \"act-20260930\", \"claimStatus\": \"CLAIMABLE\", \"actionType\": \"CLAIM_BENEFIT\", \"benefit\": {\"kind\": \"CREDITS\", \"amount\": 100}, \"startAt\": 1790000000000, \"endAt\": 1890000000000, \"placements\": [{\"content\": {\"zh\": {\"title\": \"\\u6bcf\\u5929\\u9886 100 Credits\", \"description\": \"\", \"detailUrl\": \"https://docs.qoder.com.cn/events/act-20260930\", \"buttonText\": \"\\u9886\\u53d6\"}, \"en\": {\"title\": \"EN act-20260930\"}}, \"campaignUrl\": \"https://qoder.com.cn/activities\"}]}]}"
+    ]
+   },
+   "ok": true,
+   "earned": 0,
+   "message": "同人已领取：同一设备/身份下的其他账号本轮已领过（服务端按人去重，failureCode=SAME_PERSON_ALREADY_CLAIMED）",
+   "claimed": [],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "⚠ [tester] 同人已领取：同一设备/身份下其他账号本轮已领（服务端按人去重，SAME_PERSON_ALREADY_CLAIMED），本号本轮不再发放",
+    "  当前额度余额: 1000"
+   ],
+   "stamped": false,
+   "codes": {},
+   "blocked": [
+    "c1"
+   ],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "GET /api/v2/quota/usage",
+    "GET /api/v2/user/plan"
+   ]
+  },
+  {
+   "name": "claim_http_500",
+   "only_daily": true,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     200,
+     "{\"showCampaign\": true, \"claimable\": true, \"campaignUrl\": \"https://qoder.com.cn/activities\", \"campaigns\": [{\"campaignId\": \"c1\", \"campaignKey\": \"act-20260930\", \"claimStatus\": \"CLAIMABLE\", \"actionType\": \"CLAIM_BENEFIT\", \"benefit\": {\"kind\": \"CREDITS\", \"amount\": 100}, \"startAt\": 1790000000000, \"endAt\": 1890000000000, \"placements\": [{\"content\": {\"zh\": {\"title\": \"\\u6bcf\\u5929\\u9886 100 Credits\", \"description\": \"\", \"detailUrl\": \"https://docs.qoder.com.cn/events/act-20260930\", \"buttonText\": \"\\u9886\\u53d6\"}, \"en\": {\"title\": \"EN act-20260930\"}}, \"campaignUrl\": \"https://qoder.com.cn/activities\"}]}]}"
+    ],
+    "POST /sash/api/v1/me/campaigns/c1/claim": [
+     500,
+     "{\"message\": \"claim boom\"}"
+    ]
+   },
+   "ok": true,
+   "earned": 0,
+   "message": null,
+   "claimed": [],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "! [tester] 活动平台查询失败：None",
+    "— [tester] 本区域未开放 /sash/api/v1/me/daily-check-in 接口（HTTP 404）：每日领取活动改由官方客户端承接，本次跳过"
+   ],
+   "stamped": false,
+   "codes": {},
+   "blocked": [],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "POST /sash/api/v1/me/campaigns/c1/claim",
+    "GET /sash/api/v1/me/daily-check-in/status"
+   ]
+  },
+  {
+   "name": "no_campaigns",
+   "only_daily": true,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     200,
+     "{\"showCampaign\": false, \"claimable\": true, \"campaignUrl\": \"https://qoder.com.cn/activities\", \"campaigns\": []}"
+    ]
+   },
+   "ok": true,
+   "earned": 0,
+   "message": "当前账号暂无可领取的官方活动",
+   "claimed": [],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "— [tester] 当前账号暂无可领取的官方活动",
+    "  当前额度余额: 1000"
+   ],
+   "stamped": false,
+   "codes": {},
+   "blocked": [],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "GET /api/v2/quota/usage",
+    "GET /api/v2/user/plan"
+   ]
+  },
+  {
+   "name": "view_details_only",
+   "only_daily": false,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     200,
+     "{\"showCampaign\": true, \"claimable\": true, \"campaignUrl\": \"https://qoder.com.cn/activities\", \"campaigns\": [{\"campaignId\": \"c5\", \"campaignKey\": \"act-view\", \"claimStatus\": \"CLAIMED\", \"actionType\": \"VIEW_DETAILS\", \"benefit\": {\"kind\": \"\", \"amount\": 0}, \"startAt\": 1790000000000, \"endAt\": 1890000000000, \"placements\": [{\"content\": {\"zh\": {\"title\": \"\\u6d3b\\u52a8\\u8be6\\u60c5\", \"description\": \"\", \"detailUrl\": \"https://docs.qoder.com.cn/events/act-view\", \"buttonText\": \"\\u9886\\u53d6\"}, \"en\": {\"title\": \"EN act-view\"}}, \"campaignUrl\": \"https://qoder.com.cn/activities\"}]}]}"
+    ]
+   },
+   "ok": true,
+   "earned": 0,
+   "message": "当前账号暂无可领取的官方活动",
+   "claimed": [],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "— [tester] 当前账号暂无可领取的官方活动",
+    "  当前额度余额: 1000"
+   ],
+   "stamped": false,
+   "codes": {},
+   "blocked": [],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "GET /api/v2/quota/usage",
+    "GET /api/v2/user/plan"
+   ]
+  },
+  {
+   "name": "mixed_daily_only",
+   "only_daily": true,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     200,
+     "{\"showCampaign\": true, \"claimable\": true, \"campaignUrl\": \"https://qoder.com.cn/activities\", \"campaigns\": [{\"campaignId\": \"c1\", \"campaignKey\": \"act-20260930\", \"claimStatus\": \"CLAIMABLE\", \"actionType\": \"CLAIM_BENEFIT\", \"benefit\": {\"kind\": \"CREDITS\", \"amount\": 100}, \"startAt\": 1790000000000, \"endAt\": 1890000000000, \"placements\": [{\"content\": {\"zh\": {\"title\": \"\\u6bcf\\u5929\\u9886 100 Credits\", \"description\": \"\", \"detailUrl\": \"https://docs.qoder.com.cn/events/act-20260930\", \"buttonText\": \"\\u9886\\u53d6\"}, \"en\": {\"title\": \"EN act-20260930\"}}, \"campaignUrl\": \"https://qoder.com.cn/activities\"}]}, {\"campaignId\": \"c3\", \"campaignKey\": \"act-code\", \"claimStatus\": \"CLAIMABLE\", \"actionType\": \"CLAIM_BENEFIT\", \"benefit\": {\"kind\": \"REDEMPTION_CODE\", \"amount\": 1}, \"startAt\": 1790000000000, \"endAt\": 1890000000000, \"placements\": [{\"content\": {\"zh\": {\"title\": \"\\u5151\\u6362\\u7801\\u6d3b\\u52a8\", \"description\": \"\", \"detailUrl\": \"https://docs.qoder.com.cn/events/act-code\", \"buttonText\": \"\\u9886\\u53d6\"}, \"en\": {\"title\": \"EN act-code\"}}, \"campaignUrl\": \"https://qoder.com.cn/activities\"}]}, {\"campaignId\": \"c4\", \"campaignKey\": \"act-locked\", \"claimStatus\": \"ACHIEVEMENT_NOT_COMPLETED\", \"actionType\": \"CLAIM_BENEFIT\", \"benefit\": {\"kind\": \"CREDITS\", \"amount\": 100}, \"startAt\": 1790000000000, \"endAt\": 1890000000000, \"placements\": [{\"content\": {\"zh\": {\"title\": \"\\u65b0\\u4eba\\u4efb\\u52a1\", \"description\": \"\", \"detailUrl\": \"https://docs.qoder.com.cn/events/act-locked\", \"buttonText\": \"\\u9886\\u53d6\"}, \"en\": {\"title\": \"EN act-locked\"}}, \"campaignUrl\": \"https://qoder.com.cn/activities\"}], \"requiredAchievementKey\": \"sites_first_use\", \"achievementCompleted\": false}]}"
+    ],
+    "POST /sash/api/v1/me/campaigns/c1/claim": [
+     200,
+     "{\"status\": \"CLAIMED\", \"benefit\": {\"amount\": 100}}"
+    ],
+    "POST /sash/api/v1/me/campaigns/c3/claim": [
+     200,
+     "{\"status\": \"CLAIMED\", \"redemptionCode\": \"CODE-123\", \"benefit\": {\"amount\": 1}}"
+    ]
+   },
+   "ok": true,
+   "earned": 100,
+   "message": "活动领取成功 +100 Credits（每天领 100 Credits）；另有活动需先完成新人任务（sites_first_use）：新人任务",
+   "claimed": [
+    "每天领 100 Credits"
+   ],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "✓ [tester] 活动领取成功 +100 Credits（每天领 100 Credits）",
+    "🔒 [tester] 新人任务：需先在官方桌面端完成新人任务（成就 sites_first_use）",
+    "  当前额度余额: 1000"
+   ],
+   "stamped": true,
+   "codes": {},
+   "blocked": [],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "POST /sash/api/v1/me/campaigns/c1/claim",
+    "GET /api/v2/quota/usage",
+    "GET /api/v2/user/plan"
+   ]
+  },
+  {
+   "name": "mixed_all",
+   "only_daily": false,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     200,
+     "{\"showCampaign\": true, \"claimable\": true, \"campaignUrl\": \"https://qoder.com.cn/activities\", \"campaigns\": [{\"campaignId\": \"c1\", \"campaignKey\": \"act-20260930\", \"claimStatus\": \"CLAIMABLE\", \"actionType\": \"CLAIM_BENEFIT\", \"benefit\": {\"kind\": \"CREDITS\", \"amount\": 100}, \"startAt\": 1790000000000, \"endAt\": 1890000000000, \"placements\": [{\"content\": {\"zh\": {\"title\": \"\\u6bcf\\u5929\\u9886 100 Credits\", \"description\": \"\", \"detailUrl\": \"https://docs.qoder.com.cn/events/act-20260930\", \"buttonText\": \"\\u9886\\u53d6\"}, \"en\": {\"title\": \"EN act-20260930\"}}, \"campaignUrl\": \"https://qoder.com.cn/activities\"}]}, {\"campaignId\": \"c3\", \"campaignKey\": \"act-code\", \"claimStatus\": \"CLAIMABLE\", \"actionType\": \"CLAIM_BENEFIT\", \"benefit\": {\"kind\": \"REDEMPTION_CODE\", \"amount\": 1}, \"startAt\": 1790000000000, \"endAt\": 1890000000000, \"placements\": [{\"content\": {\"zh\": {\"title\": \"\\u5151\\u6362\\u7801\\u6d3b\\u52a8\", \"description\": \"\", \"detailUrl\": \"https://docs.qoder.com.cn/events/act-code\", \"buttonText\": \"\\u9886\\u53d6\"}, \"en\": {\"title\": \"EN act-code\"}}, \"campaignUrl\": \"https://qoder.com.cn/activities\"}]}, {\"campaignId\": \"c4\", \"campaignKey\": \"act-locked\", \"claimStatus\": \"ACHIEVEMENT_NOT_COMPLETED\", \"actionType\": \"CLAIM_BENEFIT\", \"benefit\": {\"kind\": \"CREDITS\", \"amount\": 100}, \"startAt\": 1790000000000, \"endAt\": 1890000000000, \"placements\": [{\"content\": {\"zh\": {\"title\": \"\\u65b0\\u4eba\\u4efb\\u52a1\", \"description\": \"\", \"detailUrl\": \"https://docs.qoder.com.cn/events/act-locked\", \"buttonText\": \"\\u9886\\u53d6\"}, \"en\": {\"title\": \"EN act-locked\"}}, \"campaignUrl\": \"https://qoder.com.cn/activities\"}], \"requiredAchievementKey\": \"sites_first_use\", \"achievementCompleted\": false}]}"
+    ],
+    "POST /sash/api/v1/me/campaigns/c1/claim": [
+     200,
+     "{\"status\": \"CLAIMED\", \"benefit\": {\"amount\": 100}}"
+    ],
+    "POST /sash/api/v1/me/campaigns/c3/claim": [
+     200,
+     "{\"status\": \"CLAIMED\", \"redemptionCode\": \"CODE-123\", \"benefit\": {\"amount\": 1}}"
+    ]
+   },
+   "ok": true,
+   "earned": 101,
+   "message": "活动领取成功 +101 Credits（每天领 100 Credits、兑换码活动）；另有活动需先完成新人任务（sites_first_use）：新人任务",
+   "claimed": [
+    "每天领 100 Credits",
+    "兑换码活动"
+   ],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "✓ [tester] 活动领取成功 +101 Credits（每天领 100 Credits、兑换码活动）",
+    "🎟 [tester] 兑换码活动 兑换码：CODE-123（官方活动页可扫码兑换）",
+    "🔒 [tester] 新人任务：需先在官方桌面端完成新人任务（成就 sites_first_use）",
+    "  当前额度余额: 1000"
+   ],
+   "stamped": true,
+   "codes": {
+    "c3": "CODE-123"
+   },
+   "blocked": [],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "POST /sash/api/v1/me/campaigns/c1/claim",
+    "POST /sash/api/v1/me/campaigns/c3/claim",
+    "GET /api/v2/quota/usage",
+    "GET /api/v2/user/plan"
+   ]
+  },
+  {
+   "name": "code_confirming",
+   "only_daily": false,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     200,
+     "{\"showCampaign\": true, \"claimable\": true, \"campaignUrl\": \"https://qoder.com.cn/activities\", \"campaigns\": [{\"campaignId\": \"c3\", \"campaignKey\": \"act-code\", \"claimStatus\": \"CLAIMABLE\", \"actionType\": \"CLAIM_BENEFIT\", \"benefit\": {\"kind\": \"REDEMPTION_CODE\", \"amount\": 1}, \"startAt\": 1790000000000, \"endAt\": 1890000000000, \"placements\": [{\"content\": {\"zh\": {\"title\": \"\\u5151\\u6362\\u7801\\u6d3b\\u52a8\", \"description\": \"\", \"detailUrl\": \"https://docs.qoder.com.cn/events/act-code\", \"buttonText\": \"\\u9886\\u53d6\"}, \"en\": {\"title\": \"EN act-code\"}}, \"campaignUrl\": \"https://qoder.com.cn/activities\"}]}]}"
+    ],
+    "POST /sash/api/v1/me/campaigns/c3/claim": [
+     200,
+     "{\"status\": \"CLAIMED\", \"benefit\": {\"amount\": 1}}"
+    ]
+   },
+   "ok": true,
+   "earned": 1,
+   "message": "活动领取成功 +1 Credits（兑换码活动）",
+   "claimed": [
+    "兑换码活动"
+   ],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "✓ [tester] 活动领取成功 +1 Credits（兑换码活动）",
+    "  当前额度余额: 1000"
+   ],
+   "stamped": true,
+   "codes": {},
+   "blocked": [],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "POST /sash/api/v1/me/campaigns/c3/claim",
+    "GET /api/v2/quota/usage",
+    "GET /api/v2/user/plan"
+   ]
+  },
+  {
+   "name": "campaigns_500_legacy_404",
+   "only_daily": true,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     500,
+     "{\"message\": \"upstream boom\"}"
+    ]
+   },
+   "ok": true,
+   "earned": 0,
+   "message": null,
+   "claimed": [],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "! [tester] 活动平台查询失败：HTTP 500 {\"message\": \"upstream boom\"}",
+    "— [tester] 本区域未开放 /sash/api/v1/me/daily-check-in 接口（HTTP 404）：每日领取活动改由官方客户端承接，本次跳过"
+   ],
+   "stamped": false,
+   "codes": {},
+   "blocked": [],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "GET /sash/api/v1/me/daily-check-in/status"
+   ]
+  },
+  {
+   "name": "campaigns_500_legacy_403",
+   "only_daily": true,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     500,
+     "{\"message\": \"upstream boom\"}"
+    ],
+    "GET /sash/api/v1/me/daily-check-in/status": [
+     403,
+     "<html>forbidden</html>"
+    ]
+   },
+   "ok": true,
+   "earned": 0,
+   "message": null,
+   "claimed": [],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "! [tester] 活动平台查询失败：HTTP 500 {\"message\": \"upstream boom\"}",
+    "— [tester] 本区域未开放 /sash/api/v1/me/daily-check-in 接口（HTTP 403）：每日领取活动改由官方客户端承接，本次跳过"
+   ],
+   "stamped": false,
+   "codes": {},
+   "blocked": [],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "GET /sash/api/v1/me/daily-check-in/status"
+   ]
+  },
+  {
+   "name": "campaigns_500_legacy_claim",
+   "only_daily": true,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     500,
+     "{\"message\": \"upstream boom\"}"
+    ],
+    "GET /sash/api/v1/me/daily-check-in/status": [
+     200,
+     "{\"status\": \"CLAIMABLE\", \"currentStreakDays\": 3, \"rewardCredits\": 100}"
+    ],
+    "POST /sash/api/v1/me/daily-check-in/claim": [
+     200,
+     "{\"success\": true, \"rewardCredits\": 100}"
+    ]
+   },
+   "ok": true,
+   "earned": 100,
+   "message": null,
+   "claimed": [],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "! [tester] 活动平台查询失败：HTTP 500 {\"message\": \"upstream boom\"}",
+    "✓ [tester] 签到成功 +100 积分（连续 - 天）",
+    "  当前额度余额: 1000"
+   ],
+   "stamped": true,
+   "codes": {},
+   "blocked": [],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "GET /sash/api/v1/me/daily-check-in/status",
+    "POST /sash/api/v1/me/daily-check-in/claim",
+    "GET /api/v2/quota/usage",
+    "GET /api/v2/quota/usage",
+    "GET /api/v2/user/plan"
+   ]
+  },
+  {
+   "name": "campaigns_500_legacy_already",
+   "only_daily": true,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     500,
+     "{\"message\": \"upstream boom\"}"
+    ],
+    "GET /sash/api/v1/me/daily-check-in/status": [
+     200,
+     "{\"status\": \"CLAIMED\", \"lastClaimedAt\": \"__NOW__\", \"currentStreakDays\": 4}"
+    ]
+   },
+   "ok": true,
+   "earned": 0,
+   "message": null,
+   "claimed": [],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "! [tester] 活动平台查询失败：HTTP 500 {\"message\": \"upstream boom\"}",
+    "✓ [tester] 今日已签到",
+    "  当前额度余额: 1000"
+   ],
+   "stamped": true,
+   "codes": {},
+   "blocked": [],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "GET /sash/api/v1/me/daily-check-in/status",
+    "GET /api/v2/quota/usage",
+    "GET /api/v2/user/plan"
+   ]
+  },
+  {
+   "name": "campaigns_500_legacy_disabled",
+   "only_daily": true,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     500,
+     "{\"message\": \"upstream boom\"}"
+    ],
+    "GET /sash/api/v1/me/daily-check-in/status": [
+     200,
+     "{\"status\": \"DISABLED\"}"
+    ]
+   },
+   "ok": true,
+   "earned": 0,
+   "message": null,
+   "claimed": [],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "! [tester] 活动平台查询失败：HTTP 500 {\"message\": \"upstream boom\"}",
+    "— [tester] 官方签到活动未开放 (status=DISABLED)，本次跳过"
+   ],
+   "stamped": false,
+   "codes": {},
+   "blocked": [],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "GET /sash/api/v1/me/daily-check-in/status"
+   ]
+  },
+  {
+   "name": "campaigns_500_legacy_claim_409",
+   "only_daily": true,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     500,
+     "{\"message\": \"upstream boom\"}"
+    ],
+    "GET /sash/api/v1/me/daily-check-in/status": [
+     200,
+     "{\"status\": \"CLAIMABLE\"}"
+    ],
+    "POST /sash/api/v1/me/daily-check-in/claim": [
+     409,
+     "{\"code\": \"ALREADY_CLAIMED\"}"
+    ]
+   },
+   "ok": true,
+   "earned": 0,
+   "message": null,
+   "claimed": [],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "! [tester] 活动平台查询失败：HTTP 500 {\"message\": \"upstream boom\"}",
+    "✓ [tester] 今日已签到",
+    "  当前额度余额: 1000"
+   ],
+   "stamped": true,
+   "codes": {},
+   "blocked": [],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "GET /sash/api/v1/me/daily-check-in/status",
+    "POST /sash/api/v1/me/daily-check-in/claim",
+    "GET /api/v2/quota/usage",
+    "GET /api/v2/quota/usage",
+    "GET /api/v2/user/plan"
+   ]
+  },
+  {
+   "name": "campaigns_401_session_dead",
+   "only_daily": true,
+   "account": {},
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/campaigns": [
+     401,
+     "{\"code\": \"TOKEN_EXPIRE\", \"message\": \"token expired\"}"
+    ],
+    "GET /sash/api/v1/me/daily-check-in/status": [
+     401,
+     "{\"code\": \"TOKEN_EXPIRE\"}"
+    ]
+   },
+   "ok": false,
+   "earned": 0,
+   "message": null,
+   "claimed": [],
+   "logs": [
+    "开始为账号 [tester] 执行每日签到...",
+    "! [tester] 活动平台查询失败：HTTP 401 (desktop) / HTTP 401 (plain)",
+    "! [tester] 签到失败: HTTP 401 {\"code\": \"TOKEN_EXPIRE\"}"
+   ],
+   "stamped": false,
+   "codes": {},
+   "blocked": [],
+   "calls": [
+    "GET /sash/api/v1/me/campaigns",
+    "GET /sash/api/v1/me/campaigns",
+    "GET /sash/api/v1/me/daily-check-in/status"
+   ]
+  }
+ ],
+ "pro": [
+  {
+   "name": "pro_ok",
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/pro-upgrade/eligibility": [
+     200,
+     "{\"eligible\": true}"
+    ],
+    "POST /sash/api/v1/me/pro-upgrade/claim": [
+     200,
+     "{\"success\": true}"
+    ]
+   },
+   "ok": true,
+   "earned": 1800,
+   "already": false,
+   "state": "claimed_now",
+   "msg": "领取成功 +1800 积分",
+   "logs": [
+    "✓ [tester] Pro 升级包领取成功",
+    "  当前额度余额: 1000"
+   ],
+   "calls": [
+    "GET /sash/api/v1/me/pro-upgrade/eligibility",
+    "POST /sash/api/v1/me/pro-upgrade/claim",
+    "GET /api/v2/quota/usage"
+   ]
+  },
+  {
+   "name": "pro_not_eligible",
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/pro-upgrade/eligibility": [
+     200,
+     "{\"eligible\": false}"
+    ]
+   },
+   "ok": true,
+   "earned": 0,
+   "already": false,
+   "state": "not_available",
+   "msg": "不可领取（已领或活动未开放）",
+   "logs": [
+    "— [tester] Pro 升级包不可领取（已领或活动未开放）"
+   ],
+   "calls": [
+    "GET /sash/api/v1/me/pro-upgrade/eligibility"
+   ]
+  },
+  {
+   "name": "pro_already_409",
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/pro-upgrade/eligibility": [
+     200,
+     "{\"eligible\": true}"
+    ],
+    "POST /sash/api/v1/me/pro-upgrade/claim": [
+     409,
+     "{\"code\": \"ALREADY_CLAIMED\"}"
+    ]
+   },
+   "ok": true,
+   "earned": 0,
+   "already": true,
+   "state": "already_claimed",
+   "msg": "已领取（不重复发放，本次不计新增）",
+   "logs": [
+    "✓ [tester] Pro 升级包已领取过（不重复发放，本次不计新增）"
+   ],
+   "calls": [
+    "GET /sash/api/v1/me/pro-upgrade/eligibility",
+    "POST /sash/api/v1/me/pro-upgrade/claim"
+   ]
+  },
+  {
+   "name": "pro_eligibility_404",
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ]
+   },
+   "ok": true,
+   "earned": 0,
+   "already": false,
+   "state": "not_available",
+   "msg": "不可领取（已领或活动未开放）",
+   "logs": [
+    "— [tester] Pro 升级包不可领取（已领或活动未开放）"
+   ],
+   "calls": [
+    "GET /sash/api/v1/me/pro-upgrade/eligibility"
+   ]
+  },
+  {
+   "name": "pro_eligibility_500",
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/pro-upgrade/eligibility": [
+     500,
+     "{\"message\": \"x\"}"
+    ]
+   },
+   "ok": false,
+   "earned": 0,
+   "already": false,
+   "state": "error",
+   "msg": "资格查询失败: HTTP 500",
+   "logs": [
+    "! [tester] Pro 升级包资格查询失败: HTTP 500"
+   ],
+   "calls": [
+    "GET /sash/api/v1/me/pro-upgrade/eligibility"
+   ]
+  },
+  {
+   "name": "pro_claim_fail",
+   "routes": {
+    "GET /api/v2/quota/usage": [
+     200,
+     "{\"userQuota\": {\"used\": 100, \"remaining\": 900, \"total\": 1000}, \"addOnQuota\": {\"used\": 0, \"remaining\": 100, \"total\": 100}, \"isQuotaExceeded\": false}"
+    ],
+    "GET /api/v2/user/plan": [
+     200,
+     "{\"plan_tier_name\": \"Pro Trial\"}"
+    ],
+    "GET /sash/api/v1/me/pro-upgrade/eligibility": [
+     200,
+     "{\"eligible\": true}"
+    ],
+    "POST /sash/api/v1/me/pro-upgrade/claim": [
+     200,
+     "{\"success\": false, \"message\": \"activity closed\"}"
+    ]
+   },
+   "ok": false,
+   "earned": 0,
+   "already": false,
+   "state": "error",
+   "msg": "领取失败: activity closed",
+   "logs": [
+    "! [tester] Pro 升级包领取失败: activity closed"
+   ],
+   "calls": [
+    "GET /sash/api/v1/me/pro-upgrade/eligibility",
+    "POST /sash/api/v1/me/pro-upgrade/claim"
+   ]
+  }
+ ],
+ "next_window": [
+  [
+   1790000000,
+   1790042400,
+   "09-22 10:00（UTC+8）"
+  ],
+  [
+   1790035199,
+   1790042400,
+   "09-22 10:00（UTC+8）"
+  ],
+  [
+   1790035200,
+   1790042400,
+   "09-22 10:00（UTC+8）"
+  ],
+  [
+   1790035201,
+   1790042400,
+   "09-22 10:00（UTC+8）"
+  ],
+  [
+   1790121599,
+   1790128800,
+   "09-23 10:00（UTC+8）"
+  ],
+  [
+   1790000000.5,
+   1790042400,
+   "09-22 10:00（UTC+8）"
+  ]
+ ],
+ "vote": [
+  {
+   "name": "unanimous",
+   "samples": [
+    {
+     "machineToken": "A",
+     "machineType": "T-A",
+     "machineCode": "C-A",
+     "vmInfo": {
+      "isVm": true,
+      "brand": "KVM",
+      "vmTypeCode": 13,
+      "percentage": 51
+     }
+    },
+    {
+     "machineToken": "A",
+     "machineType": "T-A",
+     "machineCode": "C-A",
+     "vmInfo": {
+      "isVm": true,
+      "brand": "KVM",
+      "vmTypeCode": 13,
+      "percentage": 52
+     }
+    },
+    {
+     "machineToken": "A",
+     "machineType": "T-A",
+     "machineCode": "C-A",
+     "vmInfo": {
+      "isVm": true,
+      "brand": "KVM",
+      "vmTypeCode": 13,
+      "percentage": 53
+     }
+    }
+   ],
+   "calls": 3,
+   "picked_token": "A",
+   "picked_pct": 51
+  },
+  {
+   "name": "extend_majority",
+   "samples": [
+    {
+     "machineToken": "A",
+     "machineType": "T-A",
+     "machineCode": "C-A",
+     "vmInfo": {
+      "isVm": true,
+      "brand": "KVM",
+      "vmTypeCode": 13,
+      "percentage": 50
+     }
+    },
+    {
+     "machineToken": "B",
+     "machineType": "T-B",
+     "machineCode": "C-B",
+     "vmInfo": {
+      "isVm": true,
+      "brand": "Docker",
+      "vmTypeCode": 50,
+      "percentage": 50
+     }
+    },
+    {
+     "machineToken": "A",
+     "machineType": "T-A",
+     "machineCode": "C-A",
+     "vmInfo": {
+      "isVm": true,
+      "brand": "KVM",
+      "vmTypeCode": 13,
+      "percentage": 50
+     }
+    },
+    {
+     "machineToken": "A",
+     "machineType": "T-A",
+     "machineCode": "C-A",
+     "vmInfo": {
+      "isVm": true,
+      "brand": "KVM",
+      "vmTypeCode": 13,
+      "percentage": 50
+     }
+    },
+    {
+     "machineToken": "B",
+     "machineType": "T-B",
+     "machineCode": "C-B",
+     "vmInfo": {
+      "isVm": true,
+      "brand": "Docker",
+      "vmTypeCode": 50,
+      "percentage": 50
+     }
+    }
+   ],
+   "calls": 5,
+   "picked_token": "A",
+   "picked_pct": 50
+  },
+  {
+   "name": "extend_minority_first",
+   "samples": [
+    {
+     "machineToken": "B",
+     "machineType": "T-B",
+     "machineCode": "C-B",
+     "vmInfo": {
+      "isVm": true,
+      "brand": "Docker",
+      "vmTypeCode": 50,
+      "percentage": 50
+     }
+    },
+    {
+     "machineToken": "A",
+     "machineType": "T-A",
+     "machineCode": "C-A",
+     "vmInfo": {
+      "isVm": true,
+      "brand": "KVM",
+      "vmTypeCode": 13,
+      "percentage": 50
+     }
+    },
+    {
+     "machineToken": "A",
+     "machineType": "T-A",
+     "machineCode": "C-A",
+     "vmInfo": {
+      "isVm": true,
+      "brand": "KVM",
+      "vmTypeCode": 13,
+      "percentage": 50
+     }
+    },
+    {
+     "machineToken": "A",
+     "machineType": "T-A",
+     "machineCode": "C-A",
+     "vmInfo": {
+      "isVm": true,
+      "brand": "KVM",
+      "vmTypeCode": 13,
+      "percentage": 50
+     }
+    },
+    {
+     "machineToken": "B",
+     "machineType": "T-B",
+     "machineCode": "C-B",
+     "vmInfo": {
+      "isVm": true,
+      "brand": "Docker",
+      "vmTypeCode": 50,
+      "percentage": 50
+     }
+    }
+   ],
+   "calls": 5,
+   "picked_token": "A",
+   "picked_pct": 50
+  },
+  {
+   "name": "no_majority",
+   "samples": [
+    {
+     "machineToken": "A",
+     "machineType": "T-A",
+     "machineCode": "C-A",
+     "vmInfo": {
+      "isVm": true,
+      "brand": "KVM",
+      "vmTypeCode": 13,
+      "percentage": 50
+     }
+    },
+    {
+     "machineToken": "B",
+     "machineType": "T-B",
+     "machineCode": "C-B",
+     "vmInfo": {
+      "isVm": true,
+      "brand": "Docker",
+      "vmTypeCode": 50,
+      "percentage": 50
+     }
+    },
+    {
+     "machineToken": "C",
+     "machineType": "T-C",
+     "machineCode": "C-C",
+     "vmInfo": {
+      "isVm": true,
+      "brand": "Xen",
+      "vmTypeCode": 7,
+      "percentage": 50
+     }
+    },
+    {
+     "machineToken": "A",
+     "machineType": "T-A",
+     "machineCode": "C-A",
+     "vmInfo": {
+      "isVm": true,
+      "brand": "KVM",
+      "vmTypeCode": 13,
+      "percentage": 50
+     }
+    },
+    {
+     "machineToken": "B",
+     "machineType": "T-B",
+     "machineCode": "C-B",
+     "vmInfo": {
+      "isVm": true,
+      "brand": "Docker",
+      "vmTypeCode": 50,
+      "percentage": 50
+     }
+    }
+   ],
+   "calls": 5,
+   "picked_token": "A",
+   "picked_pct": 50
+  },
+  {
+   "name": "some_empty",
+   "samples": [
+    {},
+    {
+     "machineToken": "A",
+     "machineType": "T-A",
+     "machineCode": "C-A",
+     "vmInfo": {
+      "isVm": true,
+      "brand": "KVM",
+      "vmTypeCode": 13,
+      "percentage": 50
+     }
+    },
+    {}
+   ],
+   "calls": 3,
+   "picked_token": "A",
+   "picked_pct": 50
+  },
+  {
+   "name": "all_empty",
+   "samples": [
+    {},
+    {},
+    {}
+   ],
+   "calls": 3,
+   "picked_token": "",
+   "picked_pct": null
+  }
+ ]
+}

@@ -1,0 +1,126 @@
+{
+  "listen": ":7863",
+  "api_key": "test_key",
+  "auth_dir": "./auths",
+  "state_file": "./data/state.json",
+  "dns_servers": [],
+  "server": {
+    "read_timeout": "300s"
+  },
+  "panel": {
+    "package_detail_limit": 5
+  },
+  "qoder": {
+    "_comment": "Qoder 平台（Go 原生实现，无需另起服务）。Qoder 账号与 WorkBuddy 账号在同一个账号池，共用 api_key / 选号 / 冷却 / 会话粘性；账号在面板「添加账号 → Qoder 登录 / Qoder PAT」添加，文件落在 auth_dir/qoder-<uid>.json。调用名：qoder:模型名（按模型目录自动选区；两区都有时 default_realm 优先、选不到号回退另一区）、qoder-cn:模型名 / qoder-intl:模型名（强制区域，不回退）。data_dir 空 = state_file 同目录下的 qoder/（模型目录与机器身份缓存）；runtime_info_path 为官方 UMID 组件路径，签到 / 活动需要真实机器身份，空 = 自动探测（含 <data_dir>/umid/）。装配期字段，改动需重启。",
+    "enabled": true,
+    "default_realm": "cn",
+    "intl_gateway": "",
+    "data_dir": "",
+    "runtime_info_path": "",
+    "desktop_version": "",
+    "header_timeout_seconds": 120,
+    "queue_max_wait_seconds": 600
+  },
+  "logging": {
+    "request_archive_enabled": true,
+    "request_retention_days": 7,
+    "request_archive_max_mb": 100,
+    "request_client_info": true
+  },
+  "cooldown": {
+    "soft_rate": "600s",
+    "soft_rate_max": "2h"
+  },
+  "schedule": {
+    "checkin_hours": [9, 21],
+    "growth_hours": [1],
+    "travel_hours": [9, 21],
+    "activity_hours": [10],
+    "keepalive_hours": [22],
+    "blackcat_hours": [23],
+    "checkin_enabled": true,
+    "growth_enabled": true,
+    "travel_enabled": true,
+    "activity_enabled": true,
+    "keepalive_enabled": true,
+    "blackcat_enabled": true,
+    "balance_refresh_enabled": true,
+    "balance_refresh_minutes": 5,
+    "include_disabled_in_tasks": false
+  },
+  "global": {
+    "enabled": true,
+    "chat_base": "",
+    "billing_base": ""
+  },
+  "cn": {
+    "chat_base": ""
+  },
+  "upstream": {
+    "timeout_seconds": 120,
+    "header_timeout_seconds": 120,
+    "idle_timeout_seconds": 300,
+    "user_agent": "",
+    "client_version": "",
+    "cli_version": "",
+    "client_name": "",
+    "device_token": "",
+    "device_token_file": "",
+    "passthrough_ip": false
+  },
+  "features": {
+    "sanitize_blacklist_fingerprints": true
+  },
+  "models": {
+    "_comment": "hidden: 不对外暴露的模型黑名单。裸名 = WorkBuddy 两域都藏；\"cn:xxx\" / \"global:xxx\" = 只藏 WorkBuddy 该域；\"qoder:xxx\" = Qoder 两区都藏；\"qoder-cn:xxx\" / \"qoder-intl:xxx\" = 只藏 Qoder 该区。/v1/models 列表过滤 + chat 点名拒绝，面板保存后热生效。",
+    "hidden": [],
+    "_fallback_comment": "跨平台回退（pool.cross_platform_fallback）的显式模型映射：键 = 请求的模型（裸名 / cn:xxx / qoder:xxx，大小写不敏感），值 = 另一平台的目标模型（带前缀）；值为空串 = 该模型禁止回退。没配的模型按「同名 → 同厂商同档位」自动匹配（例：deepseek-v4.1-flash → qoder:DeepSeek-Flash），找不到就不回退。面板保存后热生效。",
+    "fallback": {}
+  },
+  "prompt": {
+    "mode": "passthrough",
+    "file": ""
+  },
+  "upstash": {
+    "url": "",
+    "token": ""
+  },
+  "pool": {
+    "strategy": {
+      "domestic": "weighted_random",
+      "international": "weighted_random",
+      "qoder": "weighted_random"
+    },
+    "account_order": {
+      "domestic": [],
+      "international": [],
+      "qoder": []
+    },
+    "max_in_flight": 3,
+    "max_in_flight_global": 2,
+    "_max_in_flight_qoder_comment": "Qoder 单号在途上限；0 = 跟随 max_in_flight。团队席位并发打满时上游会排队（10605），团队号可调成 1。",
+    "max_in_flight_qoder": 0,
+    "breaker_threshold": 3,
+    "breaker_cooldown": "30m",
+    "breaker_cooldown_max": "6h",
+    "degrade_threshold": 5,
+    "degrade_cooldown": "10m",
+    "degrade_cooldown_max": "2h",
+    "idle_weight_per_hour": 0.5,
+    "idle_weight_max": 5.0,
+    "prefer_expiring": true,
+    "expiring_soon": "168h",
+    "cost_explore_interval": "30m",
+    "credit_floor": 100,
+    "_credit_floor_qoder_comment": "Qoder 账号的积分保底（单位 Qoder Credits，与 WorkBuddy 积分分开计）；0 = 关闭。",
+    "credit_floor_qoder": 0,
+    "_cross_platform_fallback_comment": "WorkBuddy ↔ Qoder 跨平台回退（默认 true）：一个平台这次服务不了（没有可用号 / 该模型在所有号上冷却 / 轮转耗尽 / 渠道拦截 / 上游满载）时，换到另一平台的等价模型再试一次（见 models.fallback）。会消耗另一平台的额度；实际服务的模型写在响应头 X-Coder2API-Fallback 与请求记录里。",
+    "cross_platform_fallback": true,
+    "cross_domain_fallback": false
+  },
+  "session_sticky": {
+    "enabled": true,
+    "ttl": "30m",
+    "gc_interval": "5m"
+  }
+}
