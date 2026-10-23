@@ -57,10 +57,10 @@ func searchMetaFromRequest(r *http.Request) upstream.ChatMeta {
 // 上游调用 → 按 ErrKind 走 applyErrorPolicy → 抖动退避换号。
 func (h *Handler) runSearch(ctx context.Context, query string, maxResults int, meta upstream.ChatMeta) (*upstream.SearchOutcome, *searchFailure) {
 	tried := map[string]bool{}
-	// 联网搜索是 WorkBuddy 的能力：Qoder 账号预先排除（放进 tried），
+	// 联网搜索是 WorkBuddy 的能力：Qoder / Kiro 账号预先排除（放进 tried），
 	// 既不会被选中去打 WorkBuddy 搜索端点，也不占用轮转次数。
 	for _, st := range h.cfg.Pool.List() {
-		if st.Platform == auth.PlatformQoder {
+		if st.Platform != auth.PlatformWorkBuddy {
 			tried[st.UID] = true
 		}
 	}

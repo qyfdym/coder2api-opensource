@@ -9,12 +9,14 @@ let view = 'accounts';
 let overviewData = null, cfgLoaded = null;
 let logPin = true, loginState = null, loginTimer = null;
 let refTimer = null;
-/* 账号池平台筛选（'' = 全部 / workbuddy / qoder）与任务中心当前平台 tab（wb / qd）。 */
+/* 账号池平台筛选（'' = 全部 / workbuddy / qoder / kiro）与任务中心当前平台 tab（wb / qd）。 */
 const LS_ACC_PLAT = 'wb2api.accplat.v1';
 let accPlat = (() => { try { return localStorage.getItem(LS_ACC_PLAT) || ''; } catch (e) { return ''; } })();
 let tcPlat = 'wb';
 /* Qoder 添加账号（OAuth 设备授权）的会话 state 与轮询计时器。 */
 let qdLoginState = '', qdLoginTimer = null;
+/* Kiro 添加账号（AWS 设备授权）的会话 state 与轮询计时器。 */
+let krLoginState = '', krLoginTimer = null;
 /* 视图级筛选状态（模块级声明放在文件顶部，避免顶层 go() 早于声明执行时踩 TDZ）。 */
 let mdFilter = { q: '', realm: '', cap: '', effort: '', promo: '', sort: 'default' };
 let mdAll = [], mdProbes = {}, mdProbeOf = () => undefined;
@@ -404,8 +406,22 @@ addEventListener('hashchange', () => { const v = hashView(); if (v !== view) go(
 /* ── 账号池 ───────────────────────────────────────────────────────── */
 /* 平台判定：老状态 / 老后端没有 platform 字段，按 WorkBuddy 处理。 */
 function isQoderAcct(s) { return !!s && (s.platform === 'qoder' || String(s.realm || '').startsWith('qoder-')); }
-/* 账号池「类型」列：平台徽标（WorkBuddy 蓝 / Qoder 绿）+ 版本（国内 / 国际，企业版另注）。 */
+function isKiroAcct(s) { return !!s && (s.platform === 'kiro' || s.realm === 'kiro'); }
+/* acctPlatform 账号平台键（与 #accPlat 筛选 chip 的 data-plat 同值）。 */
+function acctPlatform(s) { return isKiroAcct(s) ? 'kiro' : (isQoderAcct(s) ? 'qoder' : 'workbuddy'); }
+const PLAT_NAMES = { workbuddy: 'WorkBuddy', qoder: 'Qoder', kiro: 'Kiro' };
+/* Kiro 身份来源 → 展示名（auth_kind 来自账号文件的 provider）。 */
+function kiroAuthLabel(k) {
+  return { BuilderId: 'Builder ID', Enterprise: 'Identity Center', Google: 'Google', Github: 'GitHub',
+    Social: '社交登录', APIKey: 'API Key' }[k] || (k ? String(k) : 'Kiro');
+}
+/* 账号池「类型」列：平台徽标（WorkBuddy 蓝 / Qoder 绿 / Kiro 紫）+ 版本（国内 / 国际，企业版另注；
+   Kiro 是身份来源 · 订阅档位）。 */
 function accTypeHTML(s) {
+  if (isKiroAcct(s)) {
+    const sub = kiroAuthLabel(s.auth_kind) + (s.plan ? ' · ' + s.plan : '');
+    return '<span class="realm-tag kr">Kiro</span><div class="sub">' + esc(sub) + '</div>';
+  }
   const qd = isQoderAcct(s);
   const intl = s && (s.realm === 'global' || s.realm === 'qoder-intl');
   const sub = (intl ? '国际版' : '国内版') + (s && s.enterprise ? ' · 企业版' : '');
@@ -430,29 +446,29 @@ if ($('accPlat')) {
     if (overviewData) { renderAccounts(overviewData.accounts || []); syncAccBatch(overviewData.accounts || []); }
   });
 }
-/* WorkBuddy 专属的批量操作（旅行巡检 / 活跃上报）：只看 Qoder，或池里根本没有 WorkBuddy 号时收起，
+/* WorkBuddy 专属的批量操作（旅行巡检 / 活跃上报）：只看 Qoder / Kiro，或池里根本没有 WorkBuddy 号时收起，
    免得点了之后在日志里看到「没有可执行的账号」。 */
 function syncAccBatch(accs) {
   const grp = $('accWbBatch');
   if (!grp) return;
-  const hasWb = (accs || []).some(s => !isQoderAcct(s));
-  grp.hidden = accPlat === 'qoder' || !hasWb;
+  const hasWb = (accs || []).some(s => acctPlatform(s) === 'workbuddy');
+  grp.hidden = accPlat === 'qoder' || accPlat === 'kiro' || !hasWb;
 }
 function renderAccounts(all) {
   const tb = $('accBody');
   if (!all.length) {
-    tb.innerHTML = '<tr><td colspan="10"><div class="empty"><div class="big">账号池是空的</div>点击右上角「添加账号」，登录一个 WorkBuddy 或 Qoder 账号</div></td></tr>';
+    tb.innerHTML = '<tr><td colspan="10"><div class="empty"><div class="big">账号池是空的</div>点击右上角「添加账号」，登录一个 WorkBuddy、Qoder 或 Kiro 账号</div></td></tr>';
     return;
   }
-  const list = accPlat ? all.filter(s => (accPlat === 'qoder') === isQoderAcct(s)) : all;
+  const list = accPlat ? all.filter(s => acctPlatform(s) === accPlat) : all;
   if (!list.length) {
-    tb.innerHTML = '<tr><td colspan="10"><div class="empty">没有' + (accPlat === 'qoder' ? ' Qoder ' : ' WorkBuddy ') + '账号</div></td></tr>';
+    tb.innerHTML = '<tr><td colspan="10"><div class="empty">没有 ' + esc(PLAT_NAMES[accPlat] || accPlat) + ' 账号</div></td></tr>';
     return;
   }
   // 有总额度（credits_total）→ 进度条按自身 剩余/总额 百分比；旧数据无总额 → 退回池内最高=100%
   const maxCred = Math.max(1, ...list.map(s => s.credits || 0));
   tb.innerHTML = list.map(s => {
-    const qd = isQoderAcct(s);
+    const qd = isQoderAcct(s), kr = isKiroAcct(s);
     const bl = (new Date(s.breaker_until || 0) - Date.now()) / 1000;
     const dg = (new Date(s.degrade_until || 0) - Date.now()) / 1000;
     const cool = Math.max(s.cool_remaining_sec || 0, bl > 0 ? bl : 0, dg > 0 ? dg : 0);
@@ -481,7 +497,7 @@ function renderAccounts(all) {
     // 看「为什么总选它」——免费号垄断 / 单价排序一眼可见。
     let credTip;
     if (unlimited) credTip = '企业版不限量（上游 limitNum=-1）';
-    else if (qd) credTip = 'Qoder Credits' + (s.credits_total > 0 ? '：剩余 ' + s.credits + ' / 总额 ' + s.credits_total + '（' + pct + '%）' : '');
+    else if (qd || kr) credTip = (kr ? 'Kiro Credits' : 'Qoder Credits') + (s.credits_total > 0 ? '：剩余 ' + s.credits + ' / 总额 ' + s.credits_total + '（' + pct + '%）' : '');
     else if (s.credits_total > 0) {
       credTip = (s.enterprise ? '企业版剩余额度 ' : '剩余 ')
         + s.credits + ' / ' + (s.enterprise ? '分配 ' : '总额 ') + s.credits_total + '（' + pct + '%）';
@@ -519,24 +535,25 @@ function renderAccounts(all) {
         // 企业版无个人成长体系（签到 400「企业账号不支持该操作」/ 成长任务 403）：
         // 不渲染「签到」「任务」按钮，只留「额度」——点它走 /balance，企业额度由
         // upstream 的 get-enterprise-user-usage 口径填充。
-        (s.enterprise ? '' :
+        // Kiro 没有签到体系：同样不渲染「签到」，「额度」刷新 Kiro Credits（基础 + 试用 + 附加）。
+        (s.enterprise || kr ? '' :
           '<button class="xs ghost" data-a="checkin" data-u="' + esc(s.uid) + '"' + (s.checkin_done ? ' title="今日已签到；点击可重新签到并刷新余额"' : '') + '>' + (s.checkin_done ? '已签' : '签到') + '</button>') +
-        '<button class="xs ghost" data-a="balance" data-u="' + esc(s.uid) + '"' + (s.enterprise ? ' title="刷新企业版已分配额度（上游 get-enterprise-user-usage）"' : '') + '>' + (s.enterprise ? '额度' : '余额') + '</button>' +
-        // 「任务」是 WorkBuddy 成长任务体系；Qoder 的活动与福利在任务中心的 Qoder tab。
-        (s.enterprise || qd ? '' :
+        '<button class="xs ghost" data-a="balance" data-u="' + esc(s.uid) + '"' + (s.enterprise ? ' title="刷新企业版已分配额度（上游 get-enterprise-user-usage）"' : kr ? ' title="刷新 Kiro Credits（基础额度 + 试用 + 附加额度）"' : '') + '>' + (s.enterprise || kr ? '额度' : '余额') + '</button>' +
+        // 「任务」是 WorkBuddy 成长任务体系；Qoder 的活动与福利在任务中心的 Qoder tab，Kiro 没有任务体系。
+        (s.enterprise || qd || kr ? '' :
           '<button class="xs ghost" data-a="tasks" data-u="' + esc(s.uid) + '">任务</button>') +
         (frozen ? '<button class="xs primary" data-a="revive" data-u="' + esc(s.uid) + '">解冻</button>'
                 : (s.paused ? '<button class="xs primary" data-a="resume" data-u="' + esc(s.uid) + '">恢复选号</button>'
-                            : '<button class="xs ghost" data-a="pause" data-u="' + esc(s.uid) + '" title="' + (s.enterprise ? '退出选号，但照常保活 / 刷新额度' : qd ? '退出选号，但照常签到 / 保活 / 刷新余额' : '退出选号，但照常签到 / 活跃上报 / 保活 / 刷新余额') + '">暂停选号</button>')) +
+                            : '<button class="xs ghost" data-a="pause" data-u="' + esc(s.uid) + '" title="' + (s.enterprise || kr ? '退出选号，但照常保活 / 刷新额度' : qd ? '退出选号，但照常签到 / 保活 / 刷新余额' : '退出选号，但照常签到 / 活跃上报 / 保活 / 刷新余额') + '">暂停选号</button>')) +
         (s.disabled ? '' : '<button class="xs ghost" data-a="disable" data-u="' + esc(s.uid) + '">禁用</button>') +
         '<button class="xs ghost danger" data-a="remove" data-u="' + esc(s.uid) + '">移除</button>' +
       '</td></tr>';
   }).join('');
 }
 
-/* 路由域 → 展示名（cn / global = WorkBuddy 两域，qoder-cn / qoder-intl = Qoder 两区）。 */
+/* 路由域 → 展示名（cn / global = WorkBuddy 两域，qoder-cn / qoder-intl = Qoder 两区，kiro = Kiro 单域）。 */
 function realmLabel(r) {
-  return { cn: '国内版', global: '国际版', 'qoder-cn': 'Qoder 国内', 'qoder-intl': 'Qoder 国际' }[r] || '国内版';
+  return { cn: '国内版', global: '国际版', 'qoder-cn': 'Qoder 国内', 'qoder-intl': 'Qoder 国际', kiro: 'Kiro' }[r] || '国内版';
 }
 
 // renderModelLocks 模型锁池：哪些模型不能用、锁了几个号、还要锁多久。
@@ -589,19 +606,29 @@ async function loadOverview(quiet) {
     $('sDisabled').textContent = d.disabled;
     // 暂停选号单列（issue #125）：它只关选号、照常签到保活，与禁用是两种状态。
     if ($('sPaused')) $('sPaused').textContent = d.paused == null ? '-' : d.paused;
-    // 两个平台的额度单位不同（WorkBuddy 积分 / Qoder Credits），分开汇总，不能相加。
+    // 各平台的额度单位不同（WorkBuddy 积分 / Qoder Credits / Kiro Credits），分开汇总，不能相加。
     // 企业版不限量（credits_total = -1）不计入总额。
     const sumOf = (arr, k) => arr.reduce((a, s) => a + Math.max(0, s[k] || 0), 0);
     const accs = d.accounts || [];
-    const wbAccs = accs.filter(s => !isQoderAcct(s)), qdAccs = accs.filter(isQoderAcct);
+    const wbAccs = accs.filter(s => acctPlatform(s) === 'workbuddy'), qdAccs = accs.filter(s => acctPlatform(s) === 'qoder');
+    const krAccs = accs.filter(isKiroAcct);
     const fmtSum = arr => { const r = sumOf(arr, 'credits'), t = sumOf(arr, 'credits_total'); return t > 0 ? r + ' / ' + t : String(r); };
     $('sCredits').textContent = fmtSum(wbAccs);
-    if ($('sCreditsK')) $('sCreditsK').textContent = qdAccs.length ? 'WorkBuddy 积分' : '积分剩余 / 总额';
+    if ($('sCreditsK')) $('sCreditsK').textContent = qdAccs.length || krAccs.length ? 'WorkBuddy 积分' : '积分剩余 / 总额';
     syncAccBatch(accs);
     if ($('sQdCreditsBox')) {
       $('sQdCreditsBox').hidden = !qdAccs.length;
       $('sQdCredits').textContent = fmtSum(qdAccs);
-      $('accStats').classList.toggle('n8', qdAccs.length > 0);
+    }
+    if ($('sKrCreditsBox')) {
+      $('sKrCreditsBox').hidden = !krAccs.length;
+      $('sKrCredits').textContent = fmtSum(krAccs);
+    }
+    // 卡片数：7 张基础卡 + 每个有账号的额外平台一张（8 / 9 列布局见 index.html .stats.n8 / .n9）。
+    const extraCards = (qdAccs.length ? 1 : 0) + (krAccs.length ? 1 : 0);
+    if ($('accStats')) {
+      $('accStats').classList.toggle('n8', extraCards === 1);
+      $('accStats').classList.toggle('n9', extraCards === 2);
     }
     $('sSticky').textContent = d.sticky_sessions;
     $('navSub').textContent = 'v' + d.version;
@@ -1268,6 +1295,11 @@ const CFG_MAP = {
   qoder_account_order: ['pool', 'account_order', 'qoder'],
   max_in_flight_qoder: ['pool', 'max_in_flight_qoder'], credit_floor_qoder: ['pool', 'credit_floor_qoder'],
   qoder_enabled: ['qoder', 'enabled'], qoder_default_realm: ['qoder', 'default_realm'],
+  strategy_kiro: ['pool', 'strategy', 'kiro'],
+  kiro_account_order: ['pool', 'account_order', 'kiro'],
+  max_in_flight_kiro: ['pool', 'max_in_flight_kiro'], credit_floor_kiro: ['pool', 'credit_floor_kiro'],
+  kiro_enabled: ['kiro', 'enabled'], kiro_endpoint: ['kiro', 'endpoint'],
+  kiro_proxy_url: ['kiro', 'proxy_url'], kiro_version: ['kiro', 'kiro_version'],
   cross_platform_fallback: ['pool', 'cross_platform_fallback'],
   listen: ['listen'], api_key: ['api_key'],
   package_detail_limit: ['panel', 'package_detail_limit'],
@@ -1307,7 +1339,7 @@ const CFG_MAP = {
  * 刻意不含 api_key：清空它 = 关闭整个鉴权，误触代价是网关变成无鉴权公开服务。
  * 该字段（以及提示文案"留空 = 不鉴权"与现状不符的问题）单独处理。
  */
-const CLEARABLE_CFG = new Set(['user_agent', 'prompt_file']);
+const CLEARABLE_CFG = new Set(['user_agent', 'prompt_file', 'kiro_proxy_url', 'kiro_version']);
 
 function dig(obj, path) { return path.reduce((o, k) => (o == null ? undefined : o[k]), obj); }
 function put(obj, path, val) {
@@ -1427,9 +1459,13 @@ function openAdd() {
   stopPoll();
   qdLoginReset();
   qdPatReset();
-  // 后端未启用 Qoder（config qoder.enabled=false）时不给 Qoder 入口，免得点进去才 501。
+  krLoginReset();
+  krImportReset();
+  // 后端未启用 Qoder / Kiro（config qoder.enabled / kiro.enabled = false）时不给对应入口，免得点进去才 501。
   const qdOn = !overviewData || overviewData.qoder_enabled !== false;
   document.querySelectorAll('#addTabs .tab[data-tab^="qd"]').forEach(b => { b.hidden = !qdOn; });
+  const krOn = !overviewData || overviewData.kiro_enabled !== false;
+  document.querySelectorAll('#addTabs .tab[data-tab^="kr"]').forEach(b => { b.hidden = !krOn; });
 }
 function switchAddTab(tab) {
   document.querySelectorAll('#addTabs .tab').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
@@ -1437,11 +1473,16 @@ function switchAddTab(tab) {
   $('addTabImport').hidden = tab !== 'import';
   $('addTabQdLogin').hidden = tab !== 'qdlogin';
   $('addTabQdPat').hidden = tab !== 'qdpat';
+  $('addTabKrLogin').hidden = tab !== 'krlogin';
+  $('addTabKrImport').hidden = tab !== 'krimport';
   // 底栏按钮按 tab 整组显隐（组内各按钮的状态保留：切走再切回仍是原来的进度）。
   $('addFtLogin').hidden = tab !== 'login';
   $('addFtQdLogin').hidden = tab !== 'qdlogin';
   $('addFtQdPat').hidden = tab !== 'qdpat';
+  $('addFtKrLogin').hidden = tab !== 'krlogin';
+  $('addFtKrImport').hidden = tab !== 'krimport';
   if (tab === 'qdpat') setTimeout(() => $('qdPatInput').focus(), 60);
+  if (tab === 'krimport') setTimeout(() => $('krImportText').focus(), 60);
 }
 document.querySelectorAll('#addTabs .tab').forEach(b => {
   b.onclick = () => switchAddTab(b.dataset.tab);
@@ -1487,7 +1528,10 @@ async function pollLogin() {
 function closeAdd() {
   stopPoll(); loginState = null;
   qdLoginCancel();                 // 关闭弹窗即丢弃服务端的 Qoder 待授权会话
+  krLoginCancel();                 // 同上：Kiro 设备授权会话
   $('qdPatInput').value = '';      // 不在 DOM 里留存令牌
+  $('krImportText').value = '';    // 同上：Kiro 凭证
+  $('krImportFile').value = '';
   $('addVeil').classList.remove('on');
 }
 $('btnCloseAdd').onclick = closeAdd;
@@ -3718,6 +3762,195 @@ $('btnQdPatSave').onclick = async () => {
   } catch (e) {
     err.hidden = false; err.textContent = '导入失败：' + (e.message || e);
   } finally { b.disabled = false; }
+};
+
+/* ══ Kiro（与其它平台同池）═══════════════════════════════════════════════
+   解冻 / 禁用 / 暂停 / 移除 / 额度同样走通用的 /panel/api/accounts/{uid}/*；这里只放添加账号：
+   AWS 设备授权（Builder ID / IAM Identity Center）与凭证导入。
+   ═════════════════════════════════════════════════════════════════════ */
+
+/* ── 添加 Kiro 账号：AWS 设备授权 ─────────────────────────────────────
+   OIDC 客户端凭证与 deviceCode 只在服务端内存，浏览器只拿会话 state、验证码与链接；
+   用户在 AWS 页面用邮箱 + 密码登录，密码不经过网关。关闭弹窗即 cancel。 */
+function krMethod() { return (document.querySelector('input[name="krMethod"]:checked') || {}).value || 'builder'; }
+function krSyncMethod() { $('krIdcFields').hidden = krMethod() !== 'idc'; }
+document.querySelectorAll('input[name="krMethod"]').forEach(r => r.addEventListener('change', krSyncMethod));
+/* 轮询间隔（秒）：服务端给的 interval（slow_down 时会加大），钳在 2..30。 */
+function krClampInterval(n) { n = Number(n) || 5; return Math.min(30, Math.max(2, n)); }
+function krLoginReset() {
+  if (krLoginTimer) { clearTimeout(krLoginTimer); krLoginTimer = null; }
+  krLoginState = '';
+  $('krPick').hidden = false;
+  $('krLoad').hidden = true; $('krLoginReady').hidden = true;
+  $('krDone').hidden = true; $('krErr').hidden = true;
+  $('krUrl').textContent = ''; $('krUserCode').textContent = '';
+  $('btnKrStartLogin').hidden = false; $('btnKrStartLogin').disabled = false;
+  $('btnKrOpenUrl').hidden = true; $('btnKrCopyCode').hidden = true;
+  krSyncMethod();
+}
+function krLoginCancel() {
+  const st = krLoginState;
+  if (krLoginTimer) { clearTimeout(krLoginTimer); krLoginTimer = null; }
+  krLoginState = '';
+  if (st) api('kiro/login/cancel', { method: 'POST', body: JSON.stringify({ state: st }) }).catch(() => {});
+}
+/* 终止态：给出明确原因并允许重来，不静默转圈。 */
+function krLoginFail(msg) {
+  if (krLoginTimer) { clearTimeout(krLoginTimer); krLoginTimer = null; }
+  krLoginState = '';
+  $('krLoad').hidden = true; $('krLoginReady').hidden = true;
+  $('krErr').hidden = false; $('krErr').textContent = msg;
+  $('krPick').hidden = false;
+  $('btnKrStartLogin').hidden = false; $('btnKrStartLogin').disabled = false;
+  $('btnKrOpenUrl').hidden = true; $('btnKrCopyCode').hidden = true;
+}
+$('btnKrStartLogin').onclick = async () => {
+  const body = {};
+  $('krErr').hidden = true; $('krDone').hidden = true;
+  if (krMethod() === 'idc') {
+    const su = $('krStartUrl').value.trim();
+    if (!/^https:\/\/\S+$/i.test(su)) {
+      $('krErr').hidden = false; $('krErr').textContent = 'IAM Identity Center 需要填写组织的 Start URL（https:// 开头）';
+      $('krStartUrl').focus();
+      return;
+    }
+    const rg = $('krRegion').value.trim().toLowerCase();
+    if (rg && !/^[a-z]{2}(-[a-z]+)+-\d+$/.test(rg)) {
+      $('krErr').hidden = false; $('krErr').textContent = '区域格式应类似 us-east-1 / eu-west-1';
+      $('krRegion').focus();
+      return;
+    }
+    body.start_url = su;
+    if (rg) body.region = rg;
+  }
+  krLoginCancel();
+  $('btnKrStartLogin').disabled = true;
+  $('krLoginReady').hidden = true;
+  $('krLoad').hidden = false;
+  try {
+    const d = await api('kiro/login/start', { method: 'POST', body: JSON.stringify(body) });
+    const url = qdSafeUrl(d.url);
+    if (!url) throw new Error('服务端未返回有效的授权链接');
+    krLoginState = d.state || '';
+    $('krUrl').textContent = url;
+    $('krUserCode').textContent = d.user_code || '—';
+    $('krPoll').innerHTML = '<span class="dots">等待授权完成，自动检测中</span>';
+    $('krPick').hidden = true;             // 方式锁定（会话已按该方式发起）
+    $('krLoad').hidden = true; $('krLoginReady').hidden = false;
+    $('btnKrStartLogin').hidden = true;
+    $('btnKrOpenUrl').hidden = false; $('btnKrCopyCode').hidden = !d.user_code;
+    krLoginPollStart(d.interval);
+  } catch (e) {
+    krLoginFail('获取验证码失败：' + (e.message || e));
+  }
+};
+$('btnKrOpenUrl').onclick = () => {
+  const u = qdSafeUrl($('krUrl').textContent);
+  if (u) window.open(u, '_blank', 'noopener');
+};
+$('btnKrCopyCode').onclick = () => navigator.clipboard.writeText($('krUserCode').textContent)
+  .then(() => toast('验证码已复制', 'ok'), () => toast('复制失败，请手动选择复制', 'err'));
+/* 轮询用 setTimeout 链而不是固定 setInterval：服务端在 slow_down 时会加大 interval，下一跳跟着放慢。 */
+function krLoginPollStart(intervalSec) {
+  if (krLoginTimer) { clearTimeout(krLoginTimer); krLoginTimer = null; }
+  const state = krLoginState;
+  let wait = krClampInterval(intervalSec);
+  const tick = async () => {
+    krLoginTimer = null;
+    if (!state || state !== krLoginState) return;   // 已关闭 / 重新发起
+    try {
+      const d = await api('kiro/login/poll?state=' + encodeURIComponent(state));
+      if (state !== krLoginState) return;
+      if (d.status === 'ok') {
+        krLoginState = '';
+        const acc = d.account || {};
+        $('krLoginReady').hidden = true;
+        $('btnKrOpenUrl').hidden = true; $('btnKrCopyCode').hidden = true;
+        $('krDone').hidden = false;
+        $('krDone').textContent = '已添加 ' + (acc.nickname || qdShortUid(acc.uid) || '账号') +
+          '（Kiro ' + kiroAuthLabel(acc.provider) + (acc.plan ? ' · ' + acc.plan : '') + '），账号已载入池中';
+        setTimeout(() => { closeAdd(); loadOverview(true); }, 1600);
+        return;
+      }
+      if (d.status !== 'pending') {
+        krLoginFail((d.message || d.status || '授权失败') + '（请重新获取验证码）');
+        return;
+      }
+      if (d.interval) wait = krClampInterval(d.interval);
+      if (d.message) $('krPoll').innerHTML = '<span class="dots">' + esc(d.message) + '</span>';
+    } catch (e) {
+      // 单次轮询失败不终止：可能是瞬时网络问题，下一跳会重试。
+    }
+    if (state === krLoginState) krLoginTimer = setTimeout(tick, wait * 1000);
+  };
+  krLoginTimer = setTimeout(tick, wait * 1000);
+}
+
+/* ── 添加 Kiro 账号：凭证导入 ─────────────────────────────────────────
+   凭证只经面板提交给服务端落盘，不写进浏览器存储；导入全部成功后清空输入框。 */
+function krImportReset() {
+  $('krImportText').value = '';
+  $('krImportFile').value = '';
+  $('krImportDone').hidden = true; $('krImportErr').hidden = true;
+  $('krImportRes').hidden = true; $('krImportRes').innerHTML = '';
+  $('btnKrImport').disabled = false; $('btnKrImport').textContent = '导入';
+}
+/* krMergeImportTexts 多个文件 / 已粘贴内容合并成一次导入的文本：全是 JSON → 包成一个数组
+   （Kiro IDE 的 token 文件与 clientId 文件放进同一个数组才能配对）；全是行格式 → 按行拼接；
+   两者混合无法一次解析，直接报错让用户分开导入。 */
+function krMergeImportTexts(texts) {
+  const parts = (texts || []).map(t => String(t == null ? '' : t).replace(/^\ufeff/, '').trim()).filter(Boolean);
+  if (!parts.length) return '';
+  const isJSON = t => t[0] === '{' || t[0] === '[';
+  const nJSON = parts.filter(isJSON).length;
+  if (nJSON === 0) return parts.join('\n');
+  if (nJSON !== parts.length) throw new Error('JSON 与行格式不能混在一次导入里，请分开导入');
+  return parts.length === 1 ? parts[0] : '[\n' + parts.join(',\n') + '\n]';
+}
+$('krImportFile').onchange = async () => {
+  const files = Array.from($('krImportFile').files || []);
+  if (!files.length) return;
+  const err = $('krImportErr');
+  err.hidden = true;
+  try {
+    const big = files.find(f => f.size > 1024 * 1024);
+    if (big) throw new Error(big.name + ' 超过 1MB');
+    const texts = await Promise.all(files.map(f => f.text()));
+    $('krImportText').value = krMergeImportTexts([$('krImportText').value].concat(texts));
+  } catch (e) {
+    err.hidden = false; err.textContent = '读取文件失败：' + (e.message || e);
+  } finally {
+    $('krImportFile').value = '';
+  }
+};
+$('btnKrImport').onclick = async () => {
+  const text = $('krImportText').value.trim();
+  const err = $('krImportErr'), done = $('krImportDone'), res = $('krImportRes');
+  done.hidden = true; err.hidden = true; res.hidden = true; res.innerHTML = '';
+  if (!text) { err.hidden = false; err.textContent = '请先粘贴凭证或选择文件'; return; }
+  const b = $('btnKrImport');
+  b.disabled = true; b.textContent = '导入中…';
+  try {
+    const d = await api('kiro/import', { method: 'POST', body: JSON.stringify({ text }) });
+    const accs = d.accounts || [], failed = d.failed || [], skipped = d.skipped || [];
+    if (accs.length) {
+      done.hidden = false;
+      done.textContent = '已导入 ' + accs.length + ' 个 Kiro 账号：' +
+        accs.slice(0, 5).map(a => a.nickname || qdShortUid(a.uid)).join('、') + (accs.length > 5 ? ' 等' : '') + '，账号已载入池中';
+      loadOverview(true);
+    } else {
+      err.hidden = false; err.textContent = '没有导入成功的账号';
+    }
+    const lines = failed.map(x => '失败 · ' + x).concat(skipped.map(x => '跳过 · ' + x));
+    if (lines.length) {
+      res.hidden = false;
+      res.innerHTML = lines.map(l => '<div>' + esc(l) + '</div>').join('');
+    } else {
+      $('krImportText').value = '';   // 全部成功：不在 DOM 里留存凭证
+    }
+  } catch (e) {
+    err.hidden = false; err.textContent = '导入失败：' + (e.message || e);
+  } finally { b.disabled = false; b.textContent = '导入'; }
 };
 
 /* ── 任务中心：平台 tab（WorkBuddy / Qoder）────────────────────────────

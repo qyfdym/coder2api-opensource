@@ -627,6 +627,11 @@ func (p *Pool) statusOf(uid string, e *entry) Status {
 	// 「不碰 until/coolKind，那些是即时冷却，各自到期」）。无条件透出会让
 	// 面板把过期数天的「429 rate limit」与「可用」并排展示，运维无法判断
 	// 是历史残留还是当前限流。禁用原因仍由 DisabledReason 透出。
+	if e.a.IsKiro() {
+		km := e.a.KiroMeta()
+		st.Plan = km.Plan
+		st.AuthKind = km.Provider
+	}
 	if st.Cooling || st.Disabled {
 		st.Reason = e.reason
 	}

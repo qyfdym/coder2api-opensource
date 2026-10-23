@@ -9,9 +9,11 @@ package server
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/linguo2625469/workbuddy2api-panel/internal/auth"
+	"github.com/linguo2625469/workbuddy2api-panel/internal/kiro"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/qoderacct"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/upstream"
 )
@@ -61,6 +63,8 @@ type effortInfo struct {
 	wb upstream.EffortRequest
 	// qd Qoder 侧取值（reasoning_effort → reasoning.effort → thinking.effort / level）。
 	qd string
+	// kr Kiro 侧取值（档位任一写法 + thinking.type / budget_tokens；模型 -thinking 后缀在 kiro 包内判）。
+	kr kiro.EffortRequest
 }
 
 func (p effortPeek) info() effortInfo {
@@ -81,6 +85,13 @@ func (p effortPeek) info() effortInfo {
 	ei.requested = firstNonEmpty(top, nested, thEffort)
 	if ei.requested == "" && (thType == "disabled" || rawString(p.Thinking) == "false") {
 		ei.requested = "off"
+	}
+	ei.kr = kiro.EffortRequest{Effort: firstNonEmpty(top, nested, thEffort), ThinkingType: thType}
+	if rawString(p.Thinking) == "false" {
+		ei.kr.ThinkingType = "disabled"
+	}
+	if n, err := strconv.Atoi(rawField(p.Thinking, "budget_tokens")); err == nil {
+		ei.kr.BudgetTokens = n
 	}
 	if effortOffWords[ei.requested] {
 		ei.requested = "off"
@@ -104,7 +115,12 @@ func firstNonEmpty(vals ...string) string {
 // 关闭类统一写 "off"（WorkBuddy 用 off、Qoder 用 none，展示口径合一）。
 func (h *Handler) effortOut(realm, bare string, ei effortInfo) string {
 	var out string
-	if auth.IsQoderRealm(realm) {
+	if auth.IsKiroRealm(realm) {
+		if h.cfg.Kiro == nil || h.cfg.Kiro.Client == nil {
+			return ""
+		}
+		out = h.cfg.Kiro.Client.OutboundEffort(bare, ei.kr)
+	} else if auth.IsQoderRealm(realm) {
 		if h.cfg.Qoder == nil || h.cfg.Qoder.Client == nil {
 			return ""
 		}

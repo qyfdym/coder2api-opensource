@@ -26,8 +26,8 @@ func (s *Scheduler) RunStreakBonusNow() {
 		if a == nil || a.AccessTokenValue() == "" {
 			continue
 		}
-		if a.IsGlobal() || a.IsQoder() {
-			continue // D4 门控：global / Qoder 无 CN 任务体系，不发起任何上游调用
+		if a.IsGlobal() || !a.IsWorkBuddy() {
+			continue // D4 门控：global / Qoder / Kiro 无 CN 任务体系，不发起任何上游调用
 		}
 		if a.IsEnterpriseSession() {
 			continue // 企业版 / 企业切换会话门控：无成长体系（/activity/growth/streak 企业号 403；切换会话 200 但不计分）

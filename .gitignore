@@ -56,3 +56,5 @@ server.exe
 /.gomodcache/
 /.wb-test/
 /.qoder-sidecar/
+# 第三方参考项目（移植参考用，不进版本库）
+/can/

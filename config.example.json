@@ -21,6 +21,14 @@
     "header_timeout_seconds": 120,
     "queue_max_wait_seconds": 600
   },
+  "kiro": {
+    "_comment": "Kiro 平台（AWS CodeWhisperer / Amazon Q Developer，Go 原生实现，移植自 Kiro-Go）。Kiro 账号与其它平台账号在同一个账号池，共用 api_key / 选号 / 冷却 / 会话粘性；账号在面板「添加账号 → Kiro 登录（AWS Builder ID / IAM Identity Center 设备授权）/ Kiro 导入（JSON、邮箱----密码----refreshToken----clientId----clientSecret 行格式、refresh token、ksk_ API Key）」添加，文件落在 auth_dir/kiro-<uid>.json。调用名：kiro:模型名（如 kiro:claude-sonnet-4.5）；思考默认关闭，带 reasoning_effort（low / medium / high / xhigh / max）、thinking.budget_tokens 或模型名加 -thinking 后缀即开启。endpoint：auto（Kiro IDE → CodeWhisperer → AmazonQ 依次回退）/ kiro / codewhisperer / amazonq（指定者优先）。proxy_url 空 = 跟随 HTTPS_PROXY；kiro_version 空 = 内置默认。装配期字段，改动需重启。",
+    "enabled": true,
+    "endpoint": "auto",
+    "proxy_url": "",
+    "kiro_version": "",
+    "header_timeout_seconds": 120
+  },
   "logging": {
     "request_archive_enabled": true,
     "request_retention_days": 7,
@@ -72,9 +80,9 @@
     "sanitize_blacklist_fingerprints": true
   },
   "models": {
-    "_comment": "hidden: 不对外暴露的模型黑名单。裸名 = WorkBuddy 两域都藏；\"cn:xxx\" / \"global:xxx\" = 只藏 WorkBuddy 该域；\"qoder:xxx\" = Qoder 两区都藏；\"qoder-cn:xxx\" / \"qoder-intl:xxx\" = 只藏 Qoder 该区。/v1/models 列表过滤 + chat 点名拒绝，面板保存后热生效。",
+    "_comment": "hidden: 不对外暴露的模型黑名单。裸名 = WorkBuddy 两域都藏；\"cn:xxx\" / \"global:xxx\" = 只藏 WorkBuddy 该域；\"qoder:xxx\" = Qoder 两区都藏；\"qoder-cn:xxx\" / \"qoder-intl:xxx\" = 只藏 Qoder 该区；\"kiro:xxx\" = 藏 Kiro 模型。/v1/models 列表过滤 + chat 点名拒绝，面板保存后热生效。",
     "hidden": [],
-    "_fallback_comment": "跨平台回退（pool.cross_platform_fallback）的显式模型映射：键 = 请求的模型（裸名 / cn:xxx / qoder:xxx，大小写不敏感），值 = 另一平台的目标模型（带前缀）；值为空串 = 该模型禁止回退。没配的模型按「同名 → 同厂商同档位」自动匹配（例：deepseek-v4.1-flash → qoder:DeepSeek-Flash），找不到就不回退。面板保存后热生效。",
+    "_fallback_comment": "跨平台回退（pool.cross_platform_fallback）的显式模型映射：键 = 请求的模型（裸名 / cn:xxx / qoder:xxx / kiro:xxx，大小写不敏感），值 = 另一平台的目标模型（带前缀）；值为空串 = 该模型禁止回退。没配的模型按「同名 → 同厂商同档位」自动匹配（例：deepseek-v4.1-flash → qoder:DeepSeek-Flash），找不到就不回退。面板保存后热生效。",
     "fallback": {}
   },
   "prompt": {
@@ -89,17 +97,21 @@
     "strategy": {
       "domestic": "weighted_random",
       "international": "weighted_random",
-      "qoder": "weighted_random"
+      "qoder": "weighted_random",
+      "kiro": "weighted_random"
     },
     "account_order": {
       "domestic": [],
       "international": [],
-      "qoder": []
+      "qoder": [],
+      "kiro": []
     },
     "max_in_flight": 3,
     "max_in_flight_global": 2,
     "_max_in_flight_qoder_comment": "Qoder 单号在途上限；0 = 跟随 max_in_flight。团队席位并发打满时上游会排队（10605），团队号可调成 1。",
     "max_in_flight_qoder": 0,
+    "_max_in_flight_kiro_comment": "Kiro 单号在途上限；0 = 跟随 max_in_flight。",
+    "max_in_flight_kiro": 0,
     "breaker_threshold": 3,
     "breaker_cooldown": "30m",
     "breaker_cooldown_max": "6h",
@@ -114,7 +126,9 @@
     "credit_floor": 100,
     "_credit_floor_qoder_comment": "Qoder 账号的积分保底（单位 Qoder Credits，与 WorkBuddy 积分分开计）；0 = 关闭。",
     "credit_floor_qoder": 0,
-    "_cross_platform_fallback_comment": "WorkBuddy ↔ Qoder 跨平台回退（默认 true）：一个平台这次服务不了（没有可用号 / 该模型在所有号上冷却 / 轮转耗尽 / 渠道拦截 / 上游满载）时，换到另一平台的等价模型再试一次（见 models.fallback）。会消耗另一平台的额度；实际服务的模型写在响应头 X-Coder2API-Fallback 与请求记录里。",
+    "_credit_floor_kiro_comment": "Kiro 账号的积分保底（单位 Kiro Credits，与其它平台分开计）；0 = 关闭。",
+    "credit_floor_kiro": 0,
+    "_cross_platform_fallback_comment": "WorkBuddy ↔ Qoder ↔ Kiro 跨平台回退（默认 true）：一个平台这次服务不了（没有可用号 / 该模型在所有号上冷却 / 轮转耗尽 / 渠道拦截 / 上游满载）时，换到其它平台的等价模型再试一次（见 models.fallback；顺序 WorkBuddy → Qoder → Kiro、Qoder → WorkBuddy → Kiro、Kiro → WorkBuddy → Qoder）。会消耗另一平台的额度；实际服务的模型写在响应头 X-Coder2API-Fallback 与请求记录里。",
     "cross_platform_fallback": true,
     "cross_domain_fallback": false
   },

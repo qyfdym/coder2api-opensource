@@ -76,6 +76,10 @@ type Pool struct {
 	maxInFlightQoder int
 	// creditFloorQoder Qoder 账号的积分保底（SetCreditFloorQoder）；0 = 关闭。
 	creditFloorQoder int64
+	// maxInFlightKiro Kiro 账号单账号在途上限（SetMaxInFlightKiro）；0 = 回落 maxInFlight。
+	maxInFlightKiro int
+	// creditFloorKiro Kiro 账号的积分保底（SetCreditFloorKiro，单位 Kiro Credits）；0 = 关闭。
+	creditFloorKiro int64
 	// randInt64N 仅供测试注入确定性随机源；nil 时用 math/rand/v2 全局源。
 	// 生产代码不应设置此字段。
 	randInt64N func(n int64) int64
@@ -322,20 +326,47 @@ func (p *Pool) SetCreditFloorQoder(n int64) {
 	}
 }
 
+// SetMaxInFlightKiro 注入 Kiro 账号的单账号在途上限；0 = 未设置，回落 maxInFlight。负值保留原值。
+func (p *Pool) SetMaxInFlightKiro(n int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if n >= 0 {
+		p.maxInFlightKiro = n
+	}
+}
+
+// SetCreditFloorKiro 注入 Kiro 账号的积分保底（单位 Kiro Credits，独立一条线）。0 = 关闭；负值保留原值。
+func (p *Pool) SetCreditFloorKiro(n int64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if n >= 0 {
+		p.creditFloorKiro = n
+	}
+}
+
 // creditFloorFor 账号所属平台的积分保底线。调用方需已持 p.mu。
 func (p *Pool) creditFloorFor(e *entry) int64 {
 	if e.a.IsQoder() {
 		return p.creditFloorQoder
 	}
+	if e.a.IsKiro() {
+		return p.creditFloorKiro
+	}
 	return p.creditFloor
 }
 
-// inFlightLimit 报告账号的生效在途上限（Qoder / global 分档优先，回落 maxInFlight）；
+// inFlightLimit 报告账号的生效在途上限（Qoder / Kiro / global 分档优先，回落 maxInFlight）；
 // 0 = 不限。调用方需已持 p.mu（或快照过 limit，见 Acquire）。
 func (p *Pool) inFlightLimit(e *entry) int {
 	if e.a.IsQoder() {
 		if p.maxInFlightQoder > 0 {
 			return p.maxInFlightQoder
+		}
+		return p.maxInFlight
+	}
+	if e.a.IsKiro() {
+		if p.maxInFlightKiro > 0 {
+			return p.maxInFlightKiro
 		}
 		return p.maxInFlight
 	}

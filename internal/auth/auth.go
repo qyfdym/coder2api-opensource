@@ -53,12 +53,16 @@ type Auth struct {
 	// qoder Qoder 账号的平台专属字段（PAT、套餐、签到留痕等）；WorkBuddy 账号为 nil。
 	// 读写一律经 QoderMeta() / UpdateQoder()（与 token 字段同锁）。
 	qoder *QoderMeta
+	// kiro Kiro 账号的平台专属字段（认证方式、OIDC 客户端、profileArn 等）；其它平台为 nil。
+	// 读写一律经 KiroMeta() / UpdateKiro()（与 token 字段同锁）。
+	kiro *KiroMeta
 }
 
 // 平台标识。
 const (
 	PlatformWorkBuddy = "workbuddy"
 	PlatformQoder     = "qoder"
+	PlatformKiro      = "kiro"
 )
 
 // Qoder 账号的路由域（账号池按它过滤候选；也是用量 / 状态里的 realm 取值）。
@@ -67,8 +71,58 @@ const (
 	RealmQoderIntl = "qoder-intl"
 )
 
+// RealmKiro Kiro 账号的路由域。Kiro 只有一个对外服务面（数据面区域由账号的 profileArn
+// 决定，对网关透明），所以只有一个路由域、没有平台内的两域互退。
+const RealmKiro = "kiro"
+
 // IsQoderRealm 报告路由域是否属于 Qoder（qoder-cn / qoder-intl）。
 func IsQoderRealm(realm string) bool { return strings.HasPrefix(realm, "qoder-") }
+
+// IsKiroRealm 报告路由域是否属于 Kiro。
+func IsKiroRealm(realm string) bool { return realm == RealmKiro }
+
+// KiroMeta Kiro 账号的平台专属字段（落盘于顶层 kiro 对象）。
+//
+// JSON 键名与 Kiro-Go / Kiro Account Manager 的账号字段一致，扁平形 kiro-*.json
+// （直接从这些工具导出的单个账号对象）可以原样放进 auth_dir 载入。
+type KiroMeta struct {
+	// AuthMethod 认证方式：social（Google / GitHub / 社交登录，走 Kiro 桌面认证刷新）/
+	// idc（AWS Builder ID 与 IAM Identity Center，走 OIDC 刷新）/ api_key（ksk_ 密钥，不刷新）。
+	AuthMethod string `json:"authMethod,omitempty"`
+	// Provider 身份来源：BuilderId / Enterprise / Google / Github / APIKey。
+	Provider string `json:"provider,omitempty"`
+	// Region OIDC 认证区域；API Key 账号是数据面区域。缺省 us-east-1。
+	Region string `json:"region,omitempty"`
+	// ClientID / ClientSecret OIDC 客户端（idc 刷新必需；social / api_key 为空）。
+	ClientID     string `json:"clientId,omitempty"`
+	ClientSecret string `json:"clientSecret,omitempty"`
+	// StartURL IAM Identity Center 的起始地址（Builder ID 为官方默认地址）。
+	StartURL string `json:"startUrl,omitempty"`
+	// ProfileArn Kiro / CodeWhisperer profile（决定数据面区域；刷新响应或 profile 列表里取得）。
+	ProfileArn string `json:"profileArn,omitempty"`
+	// MachineID 出站请求头里的机器标识（每号固定，首次建档时生成）。
+	MachineID string `json:"machineId,omitempty"`
+	// APIKey ksk_ 开头的 Kiro API Key（api_key 账号；与 accessToken 同值）。
+	APIKey string `json:"kiroApiKey,omitempty"`
+	Email  string `json:"email,omitempty"`
+	UserID string `json:"userId,omitempty"`
+	// Plan 订阅档位（FREE / PRO / PRO_PLUS / POWER），余额查询时补全。
+	Plan      string `json:"subscriptionType,omitempty"`
+	PlanTitle string `json:"subscriptionTitle,omitempty"`
+	// NextResetAt 额度下次重置时刻（Unix 秒；额度耗尽的冷却以它为准）。
+	NextResetAt int64 `json:"nextResetAt,omitempty"`
+	// Source 建档来源：builder_id / idc / import / api_key。
+	Source  string `json:"source,omitempty"`
+	AddedAt int64  `json:"addedAt,omitempty"`
+}
+
+func (m *KiroMeta) clone() *KiroMeta {
+	if m == nil {
+		return nil
+	}
+	c := *m
+	return &c
+}
 
 // QoderMeta Qoder 账号的平台专属字段。
 //
@@ -141,10 +195,28 @@ func normalizeQoderRegion(r string) string {
 	}
 }
 
-// Platform 账号平台（workbuddy / qoder）。
+// NewKiro 构造一个 Kiro 账号（面板登录 / 凭证导入用）。
+func NewKiro(uid, nickname, accessToken, refreshToken string, expiresAt int64, meta KiroMeta) *Auth {
+	return &Auth{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ExpiresAt:    expiresAt,
+		UID:          uid,
+		Nickname:     nickname,
+		platform:     PlatformKiro,
+		kiro:         meta.clone(),
+	}
+}
+
+// Platform 账号平台（workbuddy / qoder / kiro）。
 func (a *Auth) Platform() string {
-	if a != nil && a.platform == PlatformQoder {
-		return PlatformQoder
+	if a != nil {
+		switch a.platform {
+		case PlatformQoder:
+			return PlatformQoder
+		case PlatformKiro:
+			return PlatformKiro
+		}
 	}
 	return PlatformWorkBuddy
 }
@@ -152,8 +224,41 @@ func (a *Auth) Platform() string {
 // IsQoder 报告是否为 Qoder 账号。
 func (a *Auth) IsQoder() bool { return a != nil && a.platform == PlatformQoder }
 
+// IsKiro 报告是否为 Kiro 账号。
+func (a *Auth) IsKiro() bool { return a != nil && a.platform == PlatformKiro }
+
 // IsWorkBuddy 报告是否为 WorkBuddy 账号（含老凭证的空平台）。
-func (a *Auth) IsWorkBuddy() bool { return a != nil && a.platform != PlatformQoder }
+// WorkBuddy 专属的体系（签到 / 成长任务 / 旅行 / 补偿 / 活跃上报）一律以它为门控：
+// 其它平台的账号不会被误当成 WorkBuddy 号去打 WorkBuddy 端点。
+func (a *Auth) IsWorkBuddy() bool {
+	return a != nil && a.platform != PlatformQoder && a.platform != PlatformKiro
+}
+
+// KiroMeta 返回 Kiro 专属字段的快照（副本）；其它平台返回零值。
+func (a *Auth) KiroMeta() KiroMeta {
+	if !a.IsKiro() {
+		return KiroMeta{}
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.kiro == nil {
+		return KiroMeta{}
+	}
+	return *a.kiro
+}
+
+// UpdateKiro 在账号锁内修改 Kiro 专属字段（调用方随后 SaveAtomic 落盘）。
+func (a *Auth) UpdateKiro(fn func(m *KiroMeta)) {
+	if !a.IsKiro() || fn == nil {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.kiro == nil {
+		a.kiro = &KiroMeta{}
+	}
+	fn(a.kiro)
+}
 
 // QoderRegion Qoder 账号的区域（cn / intl）；WorkBuddy 账号返回空串。
 func (a *Auth) QoderRegion() string {
@@ -291,6 +396,9 @@ func (a *Auth) realmLocked() string {
 	if a.platform == PlatformQoder {
 		return "qoder-" + normalizeQoderRegion(a.realm)
 	}
+	if a.platform == PlatformKiro {
+		return RealmKiro
+	}
 	if !globalEnabled.Load() {
 		return "cn"
 	}
@@ -322,7 +430,7 @@ func ResolveRealm(explicit, domain string) string {
 func (a *Auth) BackfillRealm() (bool, string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if strings.TrimSpace(a.realm) != "" || a.platform == PlatformQoder {
+	if strings.TrimSpace(a.realm) != "" || a.platform == PlatformQoder || a.platform == PlatformKiro {
 		return false, a.realm
 	}
 	r := ResolveRealm("", a.Domain)
@@ -448,10 +556,13 @@ func (a *Auth) NeedsRefresh(within time.Duration) bool {
 //
 //	嵌套形 {"auth":{...},"account":{...}}  （插件 OAuth 输出）
 //	扁平形 {"accessToken":...,"uid":...}   （手写/旧版）
-func Parse(raw []byte) (*Auth, error) { return parse(raw, false) }
+func Parse(raw []byte) (*Auth, error) { return parse(raw, "") }
 
-// parse forceQoder=true 时无论文件内有无 platform 字段都按 Qoder 账号解析（qoder-*.json）。
-func parse(raw []byte, forceQoder bool) (*Auth, error) {
+// parse forcePlatform 非空时无论文件内有无 platform 字段都按该平台解析
+// （qoder-*.json → Qoder，kiro-*.json → Kiro，见 LoadDir）。
+func parse(raw []byte, forcePlatform string) (*Auth, error) {
+	forceQoder := forcePlatform == PlatformQoder
+	forceKiro := forcePlatform == PlatformKiro
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("empty auth storage")
 	}
@@ -478,6 +589,7 @@ func parse(raw []byte, forceQoder bool) (*Auth, error) {
 			DeviceToken string     `json:"device_token"`
 			Platform    string     `json:"platform"`
 			Qoder       *QoderMeta `json:"qoder"`
+			Kiro        *KiroMeta  `json:"kiro"`
 		}
 		if err := json.Unmarshal(raw, &n); err != nil {
 			return nil, fmt.Errorf("storage_parse_error: %w", err)
@@ -493,7 +605,15 @@ func parse(raw []byte, forceQoder bool) (*Auth, error) {
 			Nickname:     n.Account.Nickname,
 			DeviceToken:  n.DeviceToken,
 		}
-		if forceQoder || strings.EqualFold(strings.TrimSpace(n.Platform), PlatformQoder) {
+		switch {
+		case forceKiro || (!forceQoder && strings.EqualFold(strings.TrimSpace(n.Platform), PlatformKiro)):
+			a.platform = PlatformKiro
+			a.realm = ""
+			a.kiro = n.Kiro
+			if a.kiro == nil {
+				a.kiro = &KiroMeta{}
+			}
+		case forceQoder || strings.EqualFold(strings.TrimSpace(n.Platform), PlatformQoder):
 			a.platform = PlatformQoder
 			a.realm = normalizeQoderRegion(n.Auth.Realm)
 			a.qoder = n.Qoder
@@ -539,7 +659,32 @@ func parse(raw []byte, forceQoder bool) (*Auth, error) {
 		}
 		// 原实现的 platform 字段是客户端形态（"CLI" 等），不是平台标识；Qoder 扁平形靠
 		// 文件名（qoder-*.json，见 LoadDir）或显式 platform=qoder 判定。
-		if forceQoder || strings.EqualFold(strings.TrimSpace(f.Platform), PlatformQoder) {
+		// Kiro 扁平形（Kiro-Go / Kiro Account Manager 的单个账号对象）同理靠 kiro-*.json
+		// 文件名或显式 platform=kiro：KiroMeta 的键名与这些工具一致，直接整段解码。
+		if forceKiro || (!forceQoder && strings.EqualFold(strings.TrimSpace(f.Platform), PlatformKiro)) {
+			var m KiroMeta
+			if err := json.Unmarshal(raw, &m); err != nil {
+				return nil, fmt.Errorf("storage_parse_error: %w", err)
+			}
+			a.platform = PlatformKiro
+			a.realm = ""
+			a.kiro = &m
+			if a.UID == "" {
+				// Kiro-Go 的账号对象没有 uid 键（主键叫 id）。
+				var idOnly struct {
+					ID string `json:"id"`
+				}
+				_ = json.Unmarshal(raw, &idOnly)
+				a.UID = strings.TrimSpace(idOnly.ID)
+			}
+			if a.Nickname == "" {
+				a.Nickname = m.Email
+			}
+			// API Key 账号：密钥本身就是 Bearer 凭证。
+			if strings.TrimSpace(a.AccessToken) == "" && m.APIKey != "" {
+				a.AccessToken = m.APIKey
+			}
+		} else if forceQoder || strings.EqualFold(strings.TrimSpace(f.Platform), PlatformQoder) {
 			a.platform = PlatformQoder
 			a.realm = normalizeQoderRegion(f.Realm)
 			m := &QoderMeta{
@@ -600,6 +745,15 @@ func (a *Auth) SaveAtomic() error {
 		}
 		doc["qoder"] = meta
 	}
+	// Kiro 账号：顶层 platform + kiro 专属字段（含 OIDC clientSecret，文件权限 0600）。
+	if a.platform == PlatformKiro {
+		doc["platform"] = PlatformKiro
+		meta := a.kiro
+		if meta == nil {
+			meta = &KiroMeta{}
+		}
+		doc["kiro"] = meta
+	}
 	raw, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return err
@@ -623,7 +777,22 @@ func (a *Auth) SaveAtomic() error {
 // QoderFileName Qoder 账号凭证文件名（与 LoadDir 的 glob 对应）。
 func QoderFileName(uid string) string { return "qoder-" + uid + ".json" }
 
-// LoadDir 扫描并解析 dir 下 workbuddy*.json 与 qoder*.json；解析失败的文件静默跳过（启动日志由调用方统计）。
+// KiroFileName Kiro 账号凭证文件名（与 LoadDir 的 glob 对应）。
+func KiroFileName(uid string) string { return "kiro-" + uid + ".json" }
+
+// filePlatform 按文件名判定平台（qoder*.json / kiro*.json；其余空 = 按文件内容）。
+func filePlatform(path string) string {
+	base := strings.ToLower(filepath.Base(path))
+	switch {
+	case strings.HasPrefix(base, "qoder"):
+		return PlatformQoder
+	case strings.HasPrefix(base, "kiro"):
+		return PlatformKiro
+	}
+	return ""
+}
+
+// LoadDir 扫描并解析 dir 下 workbuddy*.json、qoder*.json 与 kiro*.json；解析失败的文件静默跳过（启动日志由调用方统计）。
 // 顺带做 realm 标识存量迁移：对空 realm 的 auth 自动 backfill（原始 domain 推断）并 SaveAtomic
 // 落盘，一次性把旧文件补上 realm 键。单个文件写失败不阻断启动（log WARN 继续），
 // 避免历史 auth 目录个别文件不可写时整个服务起不来。
@@ -638,6 +807,12 @@ func LoadDir(dir string) ([]*Auth, error) {
 		return nil, err
 	}
 	files = append(files, qfiles...)
+	// Kiro 账号同目录：kiro-<uid>.json（文件内顶层 platform=kiro）。
+	kfiles, err := filepath.Glob(filepath.Join(dir, "kiro*.json"))
+	if err != nil {
+		return nil, err
+	}
+	files = append(files, kfiles...)
 	// seenUID 重复 UID 检测：同 UID 出现在多个文件时（双 realm 同名 UID 概率近零）
 	// 打 WARN 告警含两文件路径，由「后载入者胜出」保持现状行为（不改变加载结果）。
 	seenUID := make(map[string]string, len(files))
@@ -647,8 +822,9 @@ func LoadDir(dir string) ([]*Auth, error) {
 		if err != nil {
 			continue
 		}
-		// 文件名即平台：qoder*.json 一律按 Qoder 账号解析（兼容 qoder2api-hub 的扁平账号文件）。
-		a, err := parse(raw, strings.HasPrefix(strings.ToLower(filepath.Base(f)), "qoder"))
+		// 文件名即平台：qoder*.json 一律按 Qoder 账号解析（兼容 qoder2api-hub 的扁平账号文件），
+		// kiro*.json 一律按 Kiro 账号解析（兼容 Kiro-Go 导出的单个账号对象）。
+		a, err := parse(raw, filePlatform(f))
 		if err != nil {
 			continue
 		}

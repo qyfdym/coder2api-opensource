@@ -21,6 +21,8 @@ type RegionStrategies struct {
 	International string `json:"international"`
 	// Qoder Qoder 账号（qoder-cn / qoder-intl 两个路由域共用）的选号策略；缺省加权随机。
 	Qoder string `json:"qoder,omitempty"`
+	// Kiro Kiro 账号（路由域 kiro）的选号策略；缺省加权随机。
+	Kiro string `json:"kiro,omitempty"`
 }
 
 func (s RegionStrategies) Normalize() (RegionStrategies, error) {
@@ -28,7 +30,7 @@ func (s RegionStrategies) Normalize() (RegionStrategies, error) {
 		name  string
 		value *string
 	}{
-		{"domestic", &s.Domestic}, {"international", &s.International}, {"qoder", &s.Qoder},
+		{"domestic", &s.Domestic}, {"international", &s.International}, {"qoder", &s.Qoder}, {"kiro", &s.Kiro},
 	} {
 		*field.value = strings.ToLower(strings.TrimSpace(*field.value))
 		if *field.value == "" {
@@ -48,6 +50,7 @@ type RegionAccountOrder struct {
 	Domestic      []string `json:"domestic,omitempty"`
 	International []string `json:"international,omitempty"`
 	Qoder         []string `json:"qoder,omitempty"`
+	Kiro          []string `json:"kiro,omitempty"`
 }
 
 type scheduleCursor struct {
@@ -68,6 +71,7 @@ func (p *Pool) SetScheduling(s RegionStrategies, order RegionAccountOrder) error
 		Domestic:      append([]string(nil), order.Domestic...),
 		International: append([]string(nil), order.International...),
 		Qoder:         append([]string(nil), order.Qoder...),
+		Kiro:          append([]string(nil), order.Kiro...),
 	}
 	for key, cursor := range p.scheduling {
 		realm, _, _ := strings.Cut(key, "\x1f")
@@ -88,6 +92,8 @@ func (p *Pool) strategyForRealmLocked(realm string) string {
 		s = p.strategies.International
 	case auth.RealmQoderCN, auth.RealmQoderIntl:
 		s = p.strategies.Qoder
+	case auth.RealmKiro:
+		s = p.strategies.Kiro
 	}
 	if s == "" {
 		return WeightedRandom
@@ -106,7 +112,7 @@ func (p *Pool) restoreSchedulingLocked(cursors map[string]scheduleCursor) {
 	p.scheduling = make(map[string]scheduleCursor, len(cursors))
 	for key, cursor := range cursors {
 		realm, _, ok := strings.Cut(key, "\x1f")
-		if ok && (realm == "cn" || realm == "global" || auth.IsQoderRealm(realm)) &&
+		if ok && (realm == "cn" || realm == "global" || auth.IsQoderRealm(realm) || auth.IsKiroRealm(realm)) &&
 			(cursor.Strategy == RoundRobin || cursor.Strategy == SequentialExhaust) {
 			p.scheduling[key] = cursor
 		}
@@ -122,6 +128,8 @@ func (p *Pool) pickOrderedLocked(cands []*entry, tried map[string]bool, model, r
 		order = p.accountOrder.International
 	} else if auth.IsQoderRealm(realm) {
 		order = p.accountOrder.Qoder
+	} else if auth.IsKiroRealm(realm) {
+		order = p.accountOrder.Kiro
 	}
 	rank := make(map[string]int, len(order))
 	for _, uid := range order {

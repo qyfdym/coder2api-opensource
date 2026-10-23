@@ -229,7 +229,7 @@
   .dlg header { padding: 14px 14px 11px; }
   .dlg .body { padding: 14px; }
   .dlg footer { padding: 12px 14px; flex-wrap: wrap; }
-  .dlg .tabs { margin: 8px 0 0; }
+  .dlg .tabs { margin: 8px 0 0; flex-wrap: wrap; }
   .tab-panel + .tab-panel { margin: 0 -14px; padding: 12px 14px 0; }
   .realm-row { flex-wrap: wrap; gap: 8px; }
   .savebar { padding: 11px 12px; flex-wrap: wrap; }

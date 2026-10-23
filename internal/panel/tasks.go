@@ -28,6 +28,10 @@ func (p *Panel) accountByUID(w http.ResponseWriter, uid string) *auth.Auth {
 		writeErr(w, http.StatusBadRequest, "Qoder 账号没有 WorkBuddy 成长任务（见任务中心的 Qoder 页）")
 		return nil
 	}
+	if a.IsKiro() {
+		writeErr(w, http.StatusBadRequest, "Kiro 账号没有 WorkBuddy 成长任务")
+		return nil
+	}
 	return a
 }
 

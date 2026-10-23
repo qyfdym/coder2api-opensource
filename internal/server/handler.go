@@ -19,6 +19,8 @@ import (
 
 	"github.com/linguo2625469/workbuddy2api-panel/internal/auth"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/httpauth"
+	"github.com/linguo2625469/workbuddy2api-panel/internal/kiro"
+	"github.com/linguo2625469/workbuddy2api-panel/internal/kiroacct"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/livecfg"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/logfmt"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/pool"
@@ -90,6 +92,10 @@ type Config struct {
 	Qoder *qoderacct.Service
 	// QoderDefaultRealm qoder: 前缀下两区都有同名模型时优先的路由域（缺省 qoder-cn）。
 	QoderDefaultRealm string
+
+	// Kiro Kiro 平台上游（Go 原生实现，见 internal/kiro 与 kiroacct）。nil = 未启用：
+	// kiro: 模型名照常解析，但不会有可选的账号（503）。路由域 kiro。
+	Kiro *kiroacct.Service
 }
 
 // loadLive 返回当前运行期快照；Live 为 nil 时用静态字段合成。
@@ -237,8 +243,8 @@ func (h *Handler) healthz(w http.ResponseWriter, r *http.Request) {
 		"cn":     h.cfg.Pool.ServableForRealm("cn"),
 		"global": h.cfg.Pool.ServableForRealm("global"),
 	}
-	// Qoder 两个域只在池里有 Qoder 账号时才出现（纯 WorkBuddy 部署的响应形状不变）。
-	for _, rr := range []string{auth.RealmQoderCN, auth.RealmQoderIntl} {
+	// Qoder / Kiro 的域只在池里有该平台账号时才出现（纯 WorkBuddy 部署的响应形状不变）。
+	for _, rr := range []string{auth.RealmQoderCN, auth.RealmQoderIntl, auth.RealmKiro} {
 		if t, _, _, _, _ := h.cfg.Pool.CountsDetailedForRealm(rr); t > 0 {
 			realmServable[rr] = h.cfg.Pool.ServableForRealm(rr)
 		}
@@ -490,6 +496,8 @@ func (h *Handler) modelList() []map[string]any {
 	}
 	// Qoder 模型：池里有 Qoder 账号的区域才列出（没号的区域列出来也调不通）。
 	out = append(out, h.qoderModelEntries(hidden)...)
+	// Kiro 模型：池里有 Kiro 账号才列出。
+	out = append(out, h.kiroModelEntries(hidden)...)
 	return out
 }
 
@@ -618,8 +626,8 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// 跨平台（WorkBuddy ↔ Qoder）回退在轮转循环之后单独一轮（pool.cross_platform_fallback，见 fallback.go）。
 	if realm == qoderAutoRealm {
 		realm, crossRealm = h.resolveQoderAuto(bareModel)
-	} else if auth.IsQoderRealm(realm) {
-		crossRealm = false
+	} else if auth.IsQoderRealm(realm) || auth.IsKiroRealm(realm) {
+		crossRealm = false // Kiro 只有一个路由域，没有平台内互退
 	}
 	// models.hidden 与回退的配合：首选域被藏、另一域没藏 → 直接改走另一域（不再回退）；
 	// 另一域被藏 → 关掉回退（否则回退分支会绕过黑名单）。
@@ -634,9 +642,12 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			crossRealm = false
 		}
 	}
-	// qoderReq 本请求走 Qoder 平台：WorkBuddy 专属的提示词改写 / 降级重试 / gateway_hint /
-	// 原生标记修复都不适用（Qoder 有自己的提示词模板，工具标记回读在 qoder 包内完成）。
+	// qoderReq / kiroReq 本请求走 Qoder / Kiro 平台。nativeReq = 不是 WorkBuddy：WorkBuddy 专属的
+	// 提示词改写 / 降级重试 / gateway_hint / 原生标记修复都不适用（Qoder 有自己的提示词模板、
+	// 工具标记回读在 qoder 包内完成；Kiro 输出的是结构化工具调用，不存在标记泄漏）。
 	qoderReq := auth.IsQoderRealm(realm)
+	kiroReq := auth.IsKiroRealm(realm)
+	nativeReq := qoderReq || kiroReq
 	modelRate := h.modelRate(realm, bareModel)
 
 	// 请求级统计：出口即打一行表格日志（任何路径都会走到）。
@@ -702,9 +713,9 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// gateway_hint 判定所需的请求形态（image_url part）：在改写前取（与 turnKey
 	// 同理）。11133「模型不支持图片」指向的前提。
 	reqHasImage := hasImagePart(body)
-	// hintFor gateway_hint 判定（WorkBuddy 业务码口径）；Qoder 请求不附 hint（不编造）。
+	// hintFor gateway_hint 判定（WorkBuddy 业务码口径）；Qoder / Kiro 请求不附 hint（不编造）。
 	hintFor := func(kind upstream.ErrKind, raw string, uerr *upstream.Error) string {
-		if qoderReq {
+		if nativeReq {
 			return ""
 		}
 		return h.hintOf(kind, raw, bareModel, reqHasImage, uerr)
@@ -823,8 +834,8 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	degradedApplied := false
 	prepareBody := func() {
 		body, degradedApplied = baseBody, false
-		if qoderReq {
-			// 不改写，也不参与降级重试（见下方 ErrContentBlocked 分支的 !qoderReq 门控）。
+		if nativeReq {
+			// 不改写，也不参与降级重试（见下方 ErrContentBlocked 分支的 !nativeReq 门控）。
 		} else if h.cfg.PromptMode == "custom" && h.cfg.PromptText != "" {
 			body = prompt.Rewrite(body, h.cfg.PromptText)
 		} else if h.cfg.PromptMode == "append" && h.cfg.PromptText != "" && !h.degrade.Active() {
@@ -942,8 +953,9 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 				modelRate = h.modelRate(acct.Realm(), bareModel)
 			}
 			// 平台一致性兜底：路由域按平台隔离，选出的号必然与请求同平台；万一不一致
-			// （池状态被外部改写等），宁可换号也不能拿 Qoder 凭证去打 WorkBuddy 端点。
-			if acct.IsQoder() != qoderReq || (acct.IsQoder() && h.cfg.Qoder == nil) {
+			// （池状态被外部改写等），宁可换号也不能拿 Qoder / Kiro 凭证去打 WorkBuddy 端点。
+			if acct.IsQoder() != qoderReq || acct.IsKiro() != kiroReq ||
+				(acct.IsQoder() && h.cfg.Qoder == nil) || (acct.IsKiro() && h.cfg.Kiro == nil) {
 				tried[acct.UID] = true
 				log.Printf("WARN: [server] platform mismatch acct=%s realm=%s request realm=%s: skipped",
 					logfmt.Label(acct.UID, acct.Nickname), acct.Realm(), realm)
@@ -966,8 +978,27 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			}
 			heldUID = acct.UID
 
-			// token 临近过期 → 先 refresh（失败冷却换号）。Qoder 账号走 qoderacct（刷新 + 落盘一体）。
-			if acct.IsQoder() && acct.NeedsRefresh(h.cfg.RefreshSkew) {
+			// token 临近过期 → 先 refresh（失败冷却换号）。Qoder / Kiro 账号走各自的运维层
+			// （刷新 + 落盘一体）；Kiro API Key 账号不过期，不会进刷新分支。
+			if acct.IsKiro() {
+				if kiroacct.NeedsRefresh(acct, h.cfg.RefreshSkew) {
+					if err := h.refreshKiro(r.Context(), acct); err != nil {
+						lastErr = err
+						var ke *kiro.Error
+						if errors.As(err, &ke) && (ke.Kind == kiro.KindSessionDead || ke.Kind == kiro.KindSuspended) {
+							h.applyKiroPolicy(acct, ke.Kind, bareModel, 0)
+						} else {
+							h.cfg.Pool.NoteError(acct.UID)
+						}
+						log.Printf("WARN: [server] kiro refresh acct=%s: %v", logfmt.Label(acct.UID, acct.Nickname), err)
+						fail(acct.UID)
+						if !rotateBackoff(i, r.Context()) {
+							break
+						}
+						continue
+					}
+				}
+			} else if acct.IsQoder() && acct.NeedsRefresh(h.cfg.RefreshSkew) {
 				if err := h.refreshQoder(r.Context(), acct); err != nil {
 					lastErr = err
 					var qe *qoder.Error
@@ -1012,9 +1043,24 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 				respBody []byte
 				terr     error
 			)
-			// qoderKind 本次 Qoder 调用的原始错误类别（账号处置按 Qoder 语义，见 penalize）。
+			// qoderKind / kiroKind 本次 Qoder / Kiro 调用的原始错误类别（账号处置按各自语义，见 penalize）。
 			qoderKind := qoder.KindNone
-			if acct.IsQoder() {
+			kiroKind := kiro.KindNone
+			if acct.IsKiro() {
+				// Kiro：输出恒为 OpenAI SSE（含流尾 usage 帧），首个输出之前的失败已在 kiro 包内
+				// 换入口重试过；这里拿到的错误都是「这个号这次不行了」。
+				krc, ke := h.cfg.Kiro.ChatStream(r.Context(), acct, body)
+				if ke != nil {
+					kiroKind = ke.Kind
+					if ue := kiroUpstreamError(ke); ue != nil {
+						terr, status, respBody = ue, ue.Status, []byte(ue.Msg)
+					} else {
+						terr = errors.New(ke.Error())
+					}
+				} else {
+					rc, status = krc, http.StatusOK
+				}
+			} else if acct.IsQoder() {
 				// Qoder：输出恒为 OpenAI SSE（含流尾 usage 帧），首字节前的瞬时失败 / 排队 /
 				// 信封 5xx 已在 qoder 包内重试；这里拿到的错误都是「这个号这次不行了」。
 				qrc, qe := h.cfg.Qoder.ChatStream(r.Context(), acct, body)
@@ -1034,6 +1080,18 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			// penalize 账号处置统一入口：WorkBuddy 走业务码口径的 applyErrorPolicy，
 			// Qoder 走 applyQoderPolicy（kind 映射回 Qoder 类别；有原始类别时以原始为准）。
 			penalize := func(kind upstream.ErrKind, raw string, ue *upstream.Error) {
+				if acct.IsKiro() {
+					kk := kiroKind
+					if kk == kiro.KindNone {
+						kk = kiroKindOf(kind)
+					}
+					var ra time.Duration
+					if ue != nil {
+						ra = ue.RetryAfter
+					}
+					h.applyKiroPolicy(acct, kk, bareModel, ra)
+					return
+				}
 				if !acct.IsQoder() {
 					h.applyErrorPolicy(acct.UID, kind, raw, bareModel, ue)
 					return
@@ -1104,7 +1162,7 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 				// 降级重试同样退化为 replace——原文在场只会确定性再撞 400）。
 				// 第二次仍被拦（用户内容本身触发审核）→ 回内容防火墙错误（见下分支）。
 				// 内容问题非账号问题：applyErrorPolicy 不罚账号（见 ErrContentBlocked 分支）。
-				if kind == upstream.ErrContentBlocked && !qoderReq && (h.cfg.PromptMode == "passthrough" || h.cfg.PromptMode == "append") && !degradedApplied {
+				if kind == upstream.ErrContentBlocked && !nativeReq && (h.cfg.PromptMode == "passthrough" || h.cfg.PromptMode == "append") && !degradedApplied {
 					h.degrade.Trigger()
 					body = prompt.Rewrite(body, prompt.Degraded)
 					degradedApplied = true
@@ -1233,8 +1291,9 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 				frameHint := upstream.FrameHintFunc(func() upstream.HintContext {
 					return h.hintContext(bareModel, reqHasImage)
 				})
-				if qoderReq {
-					// Qoder：工具标记回读已在 qoder 包内完成（再修一遍会误伤正文），hint 不适用。
+				if nativeReq {
+					// Qoder：工具标记回读已在 qoder 包内完成（再修一遍会误伤正文）；Kiro 输出
+					// 结构化工具调用。两者 hint 都不适用。
 					repair = upstream.NewMarkupRepair(nil, false)
 					frameHint = func(string) string { return "" }
 				}
@@ -1258,7 +1317,10 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 					// 在流开始前就做了，于是一个正在限流的号被当成健康号，粘性还会把
 					// 整个会话钉在它身上，后续每轮都失败。
 					var kind upstream.ErrKind
-					if acct.IsQoder() {
+					if acct.IsKiro() {
+						kiroKind = kiro.KindFromErrorFrame(errFrame)
+						kind = upstream.ErrServer
+					} else if acct.IsQoder() {
 						qoderKind = qoder.KindFromErrorFrame(errFrame)
 						kind = upstream.ErrServer
 					} else {
@@ -1333,34 +1395,55 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 				rc.Close()
 				return
 			}
-			if acct.IsQoder() {
-				// Qoder 非流式：qoder 包恒输出 SSE，协议级失败（工具参数非法等）与空流以 error 帧
-				// 表达。Aggregate 不识别 error 帧，会把它聚合成一条「空正文的成功响应」——先读全量
-				// 检出 error 帧，按 Qoder 语义处置账号并回真实错误，不伪装成成功。
+			if acct.IsQoder() || acct.IsKiro() {
+				// Qoder / Kiro 非流式：两个包都恒输出 SSE，协议级失败（工具参数非法等）与空流以
+				// error 帧表达。Aggregate 不识别 error 帧，会把它聚合成一条「空正文的成功响应」——
+				// 先读全量检出 error 帧，按平台语义处置账号并回真实错误，不伪装成成功。
 				buf, rerr := io.ReadAll(rc)
 				rc.Close()
 				if ef := firstSSEErrorFrame(buf); ef != "" || rerr != nil {
 					recordAttempt(acct.UID, pool.TokenUsageDelta{}, 0, false, attemptStarted, 0)
-					code, msg := "upstream_error", "qoder upstream stream error"
-					if rerr != nil {
-						qoderKind, msg = qoder.KindTransport, rerr.Error()
+					code, msg := "upstream_error", platformName(realm)+" upstream stream error"
+					badReq, tooLarge, rateLimited := false, false, false
+					if acct.IsKiro() {
+						if rerr != nil {
+							kiroKind, msg = kiro.KindTransport, rerr.Error()
+						} else {
+							kiroKind = kiro.KindFromErrorFrame(ef)
+							code, msg = errorFrameCodeMsg(ef, code, msg)
+						}
+						badReq = kiroKind == kiro.KindBadRequest || kiroKind == kiro.KindContent
+						tooLarge = kiroKind == kiro.KindTooLarge
+						rateLimited = kiroKind == kiro.KindRateLimit
 					} else {
-						qoderKind = qoder.KindFromErrorFrame(ef)
-						code, msg = errorFrameCodeMsg(ef, code, msg)
+						if rerr != nil {
+							qoderKind, msg = qoder.KindTransport, rerr.Error()
+						} else {
+							qoderKind = qoder.KindFromErrorFrame(ef)
+							code, msg = errorFrameCodeMsg(ef, code, msg)
+						}
+						badReq = qoderKind == qoder.KindBadRequest || qoderKind == qoder.KindContent
+						tooLarge = qoderKind == qoder.KindTooLarge
+						rateLimited = qoderKind == qoder.KindRateLimit
 					}
 					penalize(upstream.ErrServer, ef, nil)
 					status := http.StatusBadGateway
-					switch qoderKind {
-					case qoder.KindBadRequest, qoder.KindContent, qoder.KindTooLarge:
+					switch {
+					case badReq || tooLarge:
 						status = http.StatusBadRequest
-					case qoder.KindRateLimit:
+					case rateLimited:
 						status = http.StatusTooManyRequests
 					}
 					fail(acct.UID)
 					st.status = status
 					// 请求本身的问题（参数非法 / 超长）换平台也一样，不回退；其余可跨平台回退。
-					pending = &pendingChatErr{status: status, code: code, msg: msg,
-						canFallback: qoderKind != qoder.KindBadRequest && qoderKind != qoder.KindTooLarge}
+					canFallback := !tooLarge
+					if acct.IsKiro() {
+						canFallback = canFallback && kiroKind != kiro.KindBadRequest
+					} else {
+						canFallback = canFallback && qoderKind != qoder.KindBadRequest
+					}
+					pending = &pendingChatErr{status: status, code: code, msg: msg, canFallback: canFallback}
 					break
 				}
 				rc = io.NopCloser(bytes.NewReader(buf))
@@ -1379,8 +1462,8 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			// 只在「没有结构化 tool_calls」且「finish_reason 为 stop」时生效（见 dsml.go）；
 			// 名单为空时走弱判定（tools 声明在中转环节丢失是常态）。
 			repairTools, repairWeak := declaredTools, true
-			if qoderReq {
-				repairTools, repairWeak = nil, false // Qoder 包内已做标记回读
+			if nativeReq {
+				repairTools, repairWeak = nil, false // Qoder 包内已做标记回读；Kiro 输出结构化工具调用
 			}
 			mrepair := upstream.RepairAggregatedResponse(resp, repairTools, repairWeak)
 			if n := mrepair.Converted(); n > 0 {
@@ -1439,15 +1522,15 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !ok {
-			if h.otherPlatformUsable(realm) {
-				noEquivalent = platformName(otherPlatformRealms(realm)[0])
-			}
+			noEquivalent = h.usableOtherPlatformNames(realm)
 			break
 		}
 		fallbackFrom = realm + ":" + bareModel
 		primaryNote = h.chatFailNote(realm, modelBlock, lastErr, pending)
 		realm, bareModel, crossRealm = t.realm, t.bare, t.cross
 		qoderReq = auth.IsQoderRealm(realm)
+		kiroReq = auth.IsKiroRealm(realm)
+		nativeReq = qoderReq || kiroReq
 		modelRate = h.modelRate(realm, bareModel)
 		tried = map[string]bool{}
 		lastErr, pending, modelBlock = nil, nil, pool.ModelBlockStatus{}
@@ -1496,7 +1579,7 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// gateway_hint（末端透传）：上游错误按 Kind + 原文 + 请求形态判定；本地调度类
 	// 错误（无上游原文）固定 no_healthy_account hint。
 	hint := upstream.NoHealthyAccountHint()
-	if qoderReq {
+	if nativeReq {
 		hint = ""
 	}
 	// upstreamMsgPassed 记录 error.message 是否已被上游原文占据：模型级阻塞分支

@@ -80,9 +80,9 @@ func (s *Scheduler) compTargets() []compTarget {
 	list := s.cfg.Pool.List()
 	out := make([]compTarget, 0, len(list))
 	for _, st := range list {
-		// Qoder 账号没有 WorkBuddy 补偿体系，直接不列出（不是「跳过行」，
-		// 免得 WorkBuddy 任务中心里混入一堆与之无关的 Qoder 行）。
-		if st.Platform == auth.PlatformQoder {
+		// Qoder / Kiro 账号没有 WorkBuddy 补偿体系，直接不列出（不是「跳过行」，
+		// 免得 WorkBuddy 任务中心里混入一堆与之无关的其它平台行）。
+		if st.Platform == auth.PlatformQoder || st.Platform == auth.PlatformKiro {
 			continue
 		}
 		t := compTarget{uid: st.UID, nick: st.Nickname}
@@ -189,6 +189,9 @@ func (s *Scheduler) ClaimCompensationFor(uid string) (CompensationResult, error)
 	}
 	if a.IsQoder() {
 		return skip(compSkipQoder, "Qoder 账号无 WorkBuddy 补偿体系")
+	}
+	if a.IsKiro() {
+		return skip(compSkipQoder, "Kiro 账号无 WorkBuddy 补偿体系")
 	}
 	if a.IsGlobal() {
 		return skip(compSkipGlobal, "国际版无 CN 补偿体系")

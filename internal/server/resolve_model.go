@@ -20,6 +20,7 @@ const qoderAutoRealm = "qoder"
 //	cn / global              → WorkBuddy 国内 / 国际
 //	qoder-cn / qoder-intl    → Qoder 国内 / 国际（强制该区，永不回退）
 //	qoder                    → Qoder 自动选区（返回 qoderAutoRealm，由 handler 决定）
+//	kiro                     → Kiro（单一路由域）
 //
 // 大小写敏感（前缀必须是精确的小写枚举）。bare 即出站/选号/账本使用的裸模型名。
 //
@@ -32,13 +33,13 @@ func resolveModelDetail(model string) (realm, bare string, realmExplicit bool) {
 	}
 	prefix := model[:idx]
 	switch prefix {
-	case "cn", "global", auth.RealmQoderCN, auth.RealmQoderIntl, qoderAutoRealm:
+	case "cn", "global", auth.RealmQoderCN, auth.RealmQoderIntl, qoderAutoRealm, auth.RealmKiro:
 	default:
 		return "cn", model, false
 	}
 	bare = model[idx+1:]
-	if auth.IsQoderRealm(prefix) || prefix == qoderAutoRealm {
-		// Qoder 模型名对前后空白容忍（"qoder: Qwen3.8-Max"），与 /v1/models 展示 id 对齐。
+	if auth.IsQoderRealm(prefix) || prefix == qoderAutoRealm || auth.IsKiroRealm(prefix) {
+		// Qoder / Kiro 模型名对前后空白容忍（"qoder: Qwen3.8-Max"），与 /v1/models 展示 id 对齐。
 		bare = strings.TrimSpace(bare)
 		if bare == "" {
 			// "qoder:" 后面什么都没有：不是有效模型名，按裸名处理（最终由本地报模型不存在）。
@@ -59,6 +60,7 @@ func ResolveModel(model string) (realm, bare string) { return resolveModel(model
 
 // otherRealm 返回同一平台内的另一个选号域（"cn" ↔ "global"，"qoder-cn" ↔ "qoder-intl"），
 // 供跨域回退使用。跨平台永不回退：两个平台的模型目录、积分与账号体系都不相通。
+// Kiro 只有一个路由域，返回自身（调用方据此不会做平台内互退）。
 func otherRealm(realm string) string {
 	switch realm {
 	case "global":
@@ -67,6 +69,8 @@ func otherRealm(realm string) string {
 		return auth.RealmQoderIntl
 	case auth.RealmQoderIntl:
 		return auth.RealmQoderCN
+	case auth.RealmKiro:
+		return auth.RealmKiro
 	default:
 		return "global"
 	}

@@ -106,7 +106,7 @@ func main() {
 	p.SetWeights(cfg.Pool.IdleWeightPerHour, cfg.Pool.IdleWeightMax)
 	p.SetPreferExpiring(cfg.Pool.PreferExpiring)
 	p.SetCrossDomainFallback(cfg.Pool.CrossDomainFallback)     // 裸名跨域回退（issue #135，默认关闭）
-	p.SetCrossPlatformFallback(cfg.Pool.CrossPlatformFallback) // WorkBuddy ↔ Qoder 跨平台回退（默认开启）
+	p.SetCrossPlatformFallback(cfg.Pool.CrossPlatformFallback) // WorkBuddy ↔ Qoder ↔ Kiro 跨平台回退（默认开启）
 	_ = p.SetScheduling(cfg.Pool.Strategy, cfg.Pool.AccountOrder)
 
 	// 会话粘性路由（可配关闭）。
@@ -148,6 +148,15 @@ func main() {
 	} else {
 		log.Printf("Qoder 已禁用（qoder.enabled=false）")
 	}
+	// Kiro 平台（Go 原生实现）：账号与其它平台同池，按路由域 kiro 选号。
+	kr := buildKiro(cfg)
+	if kr != nil {
+		p.SetMaxInFlightKiro(cfg.Pool.MaxInFlightKiro)
+		p.SetCreditFloorKiro(cfg.Pool.CreditFloorKiro)
+		log.Printf("Kiro 已启用：推理入口 %s", cfg.Kiro.Endpoint)
+	} else {
+		log.Printf("Kiro 已禁用（kiro.enabled=false）")
+	}
 
 	// 积分保底的「收费」兜底判据：接上游模型目录的积分倍率表。本地实测台账无观测
 	// 时用它判收费——否则「没学过」恒等于「放行」，高价新模型会把触底号一笔打穿
@@ -160,6 +169,9 @@ func main() {
 				return ""
 			}
 			return qd.ModelRate(realm, model)
+		}
+		if auth.IsKiroRealm(realm) {
+			return kr.ModelRate(model) // nil 服务返回空串
 		}
 		return up.ModelRate(realm, model)
 	})
@@ -212,6 +224,7 @@ func main() {
 		Pool:           p,
 		Upstream:       up,
 		Qoder:          schedulerQoderOps(qd),
+		Kiro:           schedulerKiroOps(kr),
 		CheckinHours:   cfg.Schedule.CheckinHours,
 		TravelHours:    cfg.Schedule.TravelHours,
 		ActivityHours:  cfg.Schedule.ActivityHours,
@@ -343,6 +356,8 @@ func main() {
 		CreditHistory: creditHist,
 		// Qoder 账号运维（登录 / PAT 导入 / 签到 / 余额）；nil = 未启用，入口回 501。
 		Qoder: qd,
+		// Kiro 账号运维（设备授权登录 / 凭证导入 / 余额）；nil = 未启用，入口回 501。
+		Kiro: kr,
 	})
 	// 成长任务队列每日自动执行（与「执行全部待办」同管线）：Sequential 族零点解锁后
 	// 无需手动扫描；hook 返回即启动（异步执行），已在跑时内部跳过。
@@ -373,6 +388,8 @@ func main() {
 		// Qoder：qoder: / qoder-cn: / qoder-intl: 前缀的模型名在同一账号池里按 Qoder 路由域选号。
 		Qoder:             qd,
 		QoderDefaultRealm: qoderacct.RouteRealm(cfg.Qoder.DefaultRealm),
+		// Kiro：kiro: 前缀的模型名在同一账号池里按 Kiro 路由域选号。
+		Kiro: kr,
 		// handler 侧第三道闸（global realm）：false（显式逃生门）时不列 global: 模型名。
 		GlobalEnabled: cfg.Global.Enabled,
 		// 模型黑名单原始条目；运行期以 livecfg 快照为准（热生效），此处供
@@ -396,6 +413,7 @@ func main() {
 	// 异步执行：不阻塞监听启动；失败仅记日志（下一轮懒触发或本轮重试仍可补上）。
 	go warmModelRates(ctx, up, p)
 	go warmQoder(ctx, qd, p)
+	go warmKiro(ctx, kr, p)
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,
@@ -564,11 +582,13 @@ func saveConfig(raw []byte, path string, live *livecfg.Holder, p *pool.Pool, up 
 	p.SetMaxInFlight(newCfg.Pool.MaxInFlight)
 	p.SetMaxInFlightGlobal(newCfg.Pool.MaxInFlightGlobal)
 	p.SetMaxInFlightQoder(newCfg.Pool.MaxInFlightQoder)
+	p.SetMaxInFlightKiro(newCfg.Pool.MaxInFlightKiro)
 	p.SetDegrade(newCfg.Pool.DegradeThreshold, newCfg.DegradeCooldownDur, newCfg.DegradeCooldownMaxD)
 	p.SetSoftRateMax(newCfg.SoftRateMaxDur)
 	p.SetCostExploreInterval(newCfg.CostExploreIntervalDur) // costTier 探索窗口热生效（0 关停）
 	p.SetCreditFloor(newCfg.Pool.CreditFloor)               // 积分保底热生效（0 = 关闭）
 	p.SetCreditFloorQoder(newCfg.Pool.CreditFloorQoder)
+	p.SetCreditFloorKiro(newCfg.Pool.CreditFloorKiro)
 	p.SetWeights(newCfg.Pool.IdleWeightPerHour, newCfg.Pool.IdleWeightMax)
 	p.SetPreferExpiring(newCfg.Pool.PreferExpiring)
 	p.SetCrossDomainFallback(newCfg.Pool.CrossDomainFallback) // 裸名跨域回退热生效（issue #135）
@@ -626,6 +646,8 @@ func restartRequiredFields(c *Config) []string {
 	out = append(out, "server.read_timeout")
 	// qoder 段整体是装配期依赖（http.Client、缓存目录、默认区写进 handler 配置）。
 	out = append(out, "qoder")
+	// kiro 段同理（http.Client 与入口偏好在装配期确定）。
+	out = append(out, "kiro")
 	return out
 }
 

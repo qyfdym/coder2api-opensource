@@ -5,7 +5,7 @@
 <h1 align="center">Coder2API</h1>
 
 <p align="center">
-  <b>把 WorkBuddy（腾讯 CodeBuddy）与 Qoder 账号放进同一个账号池、对外提供一个 OpenAI 兼容 API 的多账号网关 · 附 Web 管理面板</b><br>
+  <b>把 WorkBuddy（腾讯 CodeBuddy）、Qoder 与 Kiro 账号放进同一个账号池、对外提供一个 OpenAI 兼容 API 的多账号网关 · 附 Web 管理面板</b><br>
   Web 面板 · OAuth 浏览器登录 · 账号池轮转 · 熔断与冷却 · 会话粘性 · 定时签到 / 活跃 / 旅行 / 保活 · <b>成长任务一键完成（17/18）</b> · 流式 / 非流式
 </p>
 
@@ -58,7 +58,7 @@
 
 ## 项目简介
 
-Coder2API（原 WorkBuddy2API）是一个自托管的 **OpenAI 兼容反向代理网关**，将腾讯 CodeBuddy（`copilot.tencent.com`）与 Qoder（`qoder.com.cn` / `qoder.com`）账号包装为统一的 `/v1/chat/completions` 服务。两个平台的账号在**同一个账号池**里调度，共用一个 `api_key`、一个面板，按模型名前缀区分平台（见 [Qoder 接入](#qoder-接入)）。
+Coder2API（原 WorkBuddy2API）是一个自托管的 **OpenAI 兼容反向代理网关**，将腾讯 CodeBuddy（`copilot.tencent.com`）、Qoder（`qoder.com.cn` / `qoder.com`）与 Kiro（AWS CodeWhisperer / Amazon Q Developer）账号包装为统一的 `/v1/chat/completions` 服务。三个平台的账号在**同一个账号池**里调度，共用一个 `api_key`、一个面板，按模型名前缀区分平台（见 [Qoder 接入](#qoder-接入)、[Kiro 接入](#kiro-接入)）。
 
 - 官方不提供 OpenAI 形态的开放 API，本项目通过 **OAuth 设备授权**（面板「添加账号」或 `login.sh`）获取账号凭证，在网关侧做 token 自动刷新、账号池调度与流量治理；
 - 面向 **个人多账号** 场景：多账号共享、单号故障自动换号、冷却 / 熔断防止雪崩、会话粘性保证多轮上下文不跳号；
@@ -72,6 +72,7 @@ Coder2API（原 WorkBuddy2API）是一个自托管的 **OpenAI 兼容反向代�
 |---|---|
 | 🔑 **OAuth 一键登录** | `login.sh` 设备授权流程，自动落盘凭证并重启容器加载新账号 |
 | 🧩 **Qoder 同池** | Qoder 国内版 / 国际版账号与 WorkBuddy 账号同池调度、共用 `api_key`；`qoder:` / `qoder-cn:` / `qoder-intl:` 模型名前缀路由，签到 / 保活 / 余额自动化，见 [Qoder 接入](#qoder-接入) |
+| 🟣 **Kiro 同池** | Kiro（Claude 系模型）账号同池调度；AWS Builder ID / IAM Identity Center 设备授权登录、凭证批量导入、API Key；`kiro:` 前缀路由，思考强度映射成 Kiro 思考预算，保活 / 额度自动化，见 [Kiro 接入](#kiro-接入) |
 | 🔄 **多账号池** | 快过期积分加权 + 成本分层 + 加权随机选号，Top-5 候选 + 防惊群 |
 | 🛡️ **熔断与冷却** | 429 软冷却 600s 起指数退避（封顶 `soft_rate_max`）、404 固定 60s 短冷却、402 硬冷却至次日 04:00、连续失败熔断、在途租约限流 |
 | 🧲 **会话粘性** | 同一会话（`conversation_id`）尽量绑定同一账号，TTL 滚动续期，失败自动解绑，可镜像 Redis 防重启丢失 |
@@ -129,10 +130,58 @@ Qoder 请求不做 WorkBuddy 专属的提示词改写 / 降级重试 / 原生标
 | `pool.strategy.qoder` / `pool.account_order.qoder` | `weighted_random` / 空 | Qoder 两区共用的选号策略与账号顺序 |
 | `pool.max_in_flight_qoder` | `0` | Qoder 单号在途上限；0 = 跟随 `max_in_flight`（团队席位号建议 1） |
 | `pool.credit_floor_qoder` | `0` | Qoder 积分保底（单位 Qoder Credits）；0 = 关闭 |
-| `pool.cross_platform_fallback` | `true` | WorkBuddy ↔ Qoder 跨平台回退（见上）；热生效 |
+| `pool.cross_platform_fallback` | `true` | WorkBuddy ↔ Qoder ↔ Kiro 跨平台回退（见上）；热生效 |
 | `models.fallback` | 空 | 跨平台回退的显式模型映射；热生效 |
 
 `models.hidden` 支持 `qoder:X`（两区都藏）与 `qoder-cn:X` / `qoder-intl:X`（只藏该区）。`qoder` 段属于装配期配置，改动需重启。
+
+## Kiro 接入
+
+Kiro 协议由 Go 原生实现（`internal/kiro`，移植自 [Quorinex/Kiro-Go](https://github.com/Quorinex/Kiro-Go)，MIT），随网关单二进制分发：OpenAI 请求转换成 Kiro 的 `generateAssistantResponse`，AWS event-stream 响应再转回 OpenAI SSE（正文、思考、工具调用、usage）。推理入口按 Kiro IDE → CodeWhisperer → AmazonQ 依次回退（`kiro.endpoint` 可指定优先者）；API Key 账号走 Kiro 运行时入口。
+
+**添加账号**（面板「添加账号」）：
+
+| 方式 | 说明 |
+|---|---|
+| Kiro 登录 · AWS Builder ID | 网关生成验证码与链接，在浏览器里用 AWS 账号（邮箱 + 密码）登录并确认；密码只在 AWS 页面输入，不经过网关 |
+| Kiro 登录 · IAM Identity Center | 同上，额外填组织的 Start URL（`https://d-xxxx.awsapps.com/start`）与区域 |
+| Kiro 导入 · JSON | Kiro-Go / Kiro Account Manager 导出，或 Kiro IDE 的 `~/.aws/sso/cache/kiro-auth-token.json`（IdC 账号把同目录的 clientId 文件一起选上，自动配对） |
+| Kiro 导入 · 行格式 | `邮箱----密码----refreshToken----clientId----clientSecret`，一行一个；密码列只为兼容常见导出格式，不使用也不保存 |
+| Kiro 导入 · refresh token / API Key | 单独一行 refresh token（社交登录），或 `ksk_xxx`（可写 `ksk_xxx\|eu-central-1` 指定区域） |
+
+导入时 OAuth 凭证先刷新一次、再查一次额度确认可用；同一个账号重复导入覆盖同一个文件（`auths/kiro-<uid>.json`）。账号池表格里用紫色「Kiro」徽标区分，副标题是身份来源与订阅档位。
+
+**模型名**：`kiro:模型名`，例如 `kiro:claude-sonnet-4.5`（`claude-sonnet-4-5` 写法同样接受）；`GET /v1/models` 在池里有 Kiro 账号时列出 `kiro:` 条目（动态目录，拉不到时用内置目录）。
+
+**思考强度**：Kiro 默认不思考，请求带以下任一写法即开启（显式关闭优先）：
+
+| 请求 | Kiro 思考预算（max_thinking_length） |
+|---|---|
+| `reasoning_effort`: `low`（`minimal` 同） / `medium` / `high` / `xhigh` / `max` | 4096 / 16384 / 32768 / 65536 / 200000 |
+| `thinking.budget_tokens`: N | N（钳在 1024–200000，记录档位取最接近的一档） |
+| `thinking.type`: `enabled` / `adaptive`（不带预算），或模型名加 `-thinking` 后缀 | 200000（max） |
+| `reasoning_effort`: `none` / `off`，或 `thinking.type`: `disabled` | 不思考 |
+
+无法识别的档位按 `high` 处理。思考内容走 `delta.reasoning_content`；请求记录的「思考强度」列写「请求档位 → 实际档位」。
+
+**调度与保号**：与其它平台共用选号、冷却、熔断、会话粘性。错误处置按 Kiro 语义：429 软冷却退避；账号封禁（`TEMPORARILY_SUSPENDED`）或登录失效停用；401/403 标记待刷新并短冷却（API Key 被拒直接停用）；额度耗尽硬冷却到下次重置；模型对该号不可用只锁该模型；容量不足（`INSUFFICIENT_MODEL_CAPACITY`）503 不换号。非流式请求遇到上游截断会在同一个号上重试两次。Kiro 没有签到：「全部签到」与定时签到对 Kiro 账号只刷新额度；token 保活、额度刷新跟随 `schedule`。跨平台回退顺序：WorkBuddy → Qoder → Kiro、Qoder → WorkBuddy → Kiro、Kiro → WorkBuddy → Qoder。
+
+**配置**（`config.json`）：
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `kiro.enabled` | `true` | 关闭后 Kiro 账号仍在列表里但不参与选号，面板不提供 Kiro 添加入口 |
+| `kiro.endpoint` | `auto` | `auto` / `kiro` / `codewhisperer` / `amazonq`（指定者优先，其余作回退） |
+| `kiro.proxy_url` | 空 | Kiro 出站代理（`http://` / `https://` / `socks5://`）；空 = 跟随 `HTTPS_PROXY` |
+| `kiro.kiro_version` | 空 | 出站 User-Agent 里的 Kiro IDE 版本；空 = 内置默认 |
+| `kiro.header_timeout_seconds` | `120` | 推理请求等待响应头上限 |
+| `pool.strategy.kiro` / `pool.account_order.kiro` | `weighted_random` / 空 | Kiro 选号策略与账号顺序；热生效 |
+| `pool.max_in_flight_kiro` | `0` | Kiro 单号在途上限；0 = 跟随 `max_in_flight` |
+| `pool.credit_floor_kiro` | `0` | Kiro 积分保底（单位 Kiro Credits）；0 = 关闭 |
+
+`models.hidden` 支持 `kiro:X`；`models.fallback` 的键值同样可写 `kiro:X`。`kiro` 段属于装配期配置，改动需重启。
+
+暂未支持（二期）：Microsoft 企业 SSO（external_idp）账号、SSO token 导入、读取本机 Kiro IDE 缓存、社交账号网页登录（PKCE）、超额（overage）开关、`/v1/responses`、web_search 模拟。
 
 ## 🎯 成长任务一键完成（17/18）
 

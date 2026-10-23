@@ -96,8 +96,12 @@ type Status struct {
 	// Realm 账号路由域（auth.Realm() 计算值）：WorkBuddy = cn / global（含 global.enabled
 	// 开关闸），Qoder = qoder-cn / qoder-intl。供面板/状态接口按域分组展示。
 	Realm string `json:"realm,omitempty"`
-	// Platform 账号平台（workbuddy / qoder）；面板据此区分按钮与积分单位。
+	// Platform 账号平台（workbuddy / qoder / kiro）；面板据此区分按钮与积分单位。
 	Platform string `json:"platform,omitempty"`
+	// Plan / AuthKind 仅 Kiro：订阅档位（FREE / PRO …）与身份来源（BuilderId / Enterprise /
+	// Google / Github / APIKey），供面板展示账号类型副标题。
+	Plan     string `json:"plan,omitempty"`
+	AuthKind string `json:"auth_kind,omitempty"`
 	// Enterprise 企业版账号（auth.EnterpriseID 非空，计算值不落盘）。
 	// 企业版无个人成长体系（签到/成长任务/连登/旅行/夜猫子 上游均拒），
 	// 面板据此隐藏对应按钮；选号、保活、额度展示不受影响。

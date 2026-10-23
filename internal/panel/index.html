@@ -200,6 +200,9 @@ label.fld > .hint { display: block; font-size: 11.5px; color: var(--ink-3); marg
 /* 池里有 Qoder 账号时多一张「Qoder Credits」卡：宽屏 8 列；窄屏仍走下方 3 / 2 列规则。 */
 @media (min-width: 1181px) { .stats.n8 { grid-template-columns: repeat(8, 1fr); } }
 @media (min-width: 981px) and (max-width: 1180px) { .stats.n8 { grid-template-columns: repeat(4, 1fr); } }
+/* Qoder 与 Kiro 都在池里：再多一张「Kiro Credits」卡，宽屏 9 列、中屏 5 列。 */
+@media (min-width: 1281px) { .stats.n9 { grid-template-columns: repeat(9, 1fr); } }
+@media (min-width: 981px) and (max-width: 1280px) { .stats.n9 { grid-template-columns: repeat(5, 1fr); } }
 @media (max-width: 980px) { .stats { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 560px) { .stats { grid-template-columns: repeat(2, 1fr); } }
 .stat { padding: 14px 17px; border-right: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
@@ -267,7 +270,8 @@ label.fld > .hint { display: block; font-size: 11.5px; color: var(--ink-3); marg
 .realm-tag { display: inline-block; margin-left: 6px; padding: 1px 5px; border-radius: 4px; font: 500 10px/1 var(--sans); color: var(--accent); background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); vertical-align: 1px; }
 .realm-row { display: flex; align-items: center; gap: 14px; padding: 4px 0 10px; }
 .realm-opt { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--ink-2); cursor: pointer; }
-.realm-opt input { accent-color: var(--accent); margin: 0; }
+/* 单选框不吃通用 input 的 width:100%：选项文字一长，radio 会被撑成整宽、把文字挤成竖排。 */
+.realm-opt input { accent-color: var(--accent); margin: 0; width: auto; flex: none; }
 .num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .usage-cell { min-width: 268px; }
 .usage-line {
@@ -344,9 +348,24 @@ label.fld > .hint { display: block; font-size: 11.5px; color: var(--ink-3); marg
 .acc td.ptype { white-space: nowrap; }
 .acc td.ptype .realm-tag { margin-left: 0; }
 .acc td.ptype .sub { margin-top: 4px; font-size: 11.5px; color: var(--ink-3); }
-#addTabQdPat code, #tcQoder code {
+#addTabQdPat code, #tcQoder code, #addTabKrImport code, #cfgSecKiro code {
   font: 11.5px var(--mono); background: var(--surface-2); padding: 1px 5px; border-radius: 4px;
 }
+/* ── Kiro（同池第三个平台）：紫色徽标、设备授权验证码、凭证导入框 ── */
+.realm-tag.kr { color: #8b5cf6; background: color-mix(in srgb, #8b5cf6 12%, transparent); border-color: color-mix(in srgb, #8b5cf6 30%, transparent); }
+.kr-code { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; }
+.kr-code .lab { font-size: 12px; color: var(--ink-3); }
+.kr-code code { font: 600 18px/1 var(--mono); letter-spacing: 2px; user-select: all;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 7px; padding: 8px 14px; }
+.kr-fmt { margin: 0 0 10px 18px; padding: 0; font-size: 12px; color: var(--ink-3); line-height: 1.75; }
+#krImportText {
+  display: block; width: 100%; min-height: 128px; resize: vertical; margin-bottom: 8px;
+  font: 12px/1.6 var(--mono); color: var(--ink); background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 7px; padding: 8px 11px;
+}
+#krImportText:focus { outline: none; border-color: var(--accent); }
+.kr-res { margin-top: 8px; font-size: 12px; color: var(--ink-3); line-height: 1.7; max-height: 160px; overflow: auto; }
+.kr-res div { overflow-wrap: anywhere; }
 .tc-plat { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .qd-log {
   max-height: 260px; overflow: auto; margin: 0; padding: 13px 17px; border-top: 1px solid var(--line-soft);
@@ -421,7 +440,7 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
 /* 弹窗底栏按钮分组：按 tab 整组显隐（[hidden] 必须显式压过 display:contents）。 */
 .ft-grp { display: contents; }
 .ft-grp[hidden] { display: none; }
-.dlg .tabs { display: inline-flex; gap: 2px; background: var(--surface-2); border-radius: 9px; padding: 3px; margin-left: 10px; vertical-align: middle; }
+.dlg .tabs { display: inline-flex; flex-wrap: wrap; gap: 2px; background: var(--surface-2); border-radius: 9px; padding: 3px; margin-left: 10px; vertical-align: middle; }
 .dlg .tabs .tab { padding: 4px 14px; border-radius: 7px; border: none; background: transparent; color: var(--ink-3); font: 550 12.5px var(--sans); cursor: pointer; }
 .dlg .tabs .tab.on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.25); }
 .tab-panel + .tab-panel { border-top: 1px solid var(--line-soft); margin: 0 -20px; padding: 14px 20px 0; }
@@ -790,26 +809,28 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
         <div class="stat bad"><div class="v" id="sDisabled">-</div><div class="k">已禁用</div></div>
         <div class="stat warn"><div class="v" id="sPaused">-</div><div class="k">已暂停选号</div></div>
         <div class="stat" title="剩余 / 总额"><div class="v" id="sCredits">-</div><div class="k" id="sCreditsK">积分剩余 / 总额</div></div>
-        <!-- 两个平台的额度单位不同（WorkBuddy 积分 / Qoder Credits），分开汇总；没有 Qoder 账号时隐藏。 -->
+        <!-- 各平台额度单位不同（WorkBuddy 积分 / Qoder Credits / Kiro Credits），分开汇总；池里没有该平台账号时隐藏。 -->
         <div class="stat" id="sQdCreditsBox" hidden title="剩余 / 总额"><div class="v" id="sQdCredits">-</div><div class="k">Qoder Credits</div></div>
+        <div class="stat" id="sKrCreditsBox" hidden title="剩余 / 总额"><div class="v" id="sKrCredits">-</div><div class="k">Kiro Credits</div></div>
         <div class="stat"><div class="v" id="sSticky">-</div><div class="k">粘性会话</div></div>
       </div>
 
       <div class="box">
         <header>
           <h3>账号池</h3>
-          <!-- 平台筛选：WorkBuddy 与 Qoder 账号同池，这里只过滤展示，不影响选号。 -->
+          <!-- 平台筛选：WorkBuddy / Qoder / Kiro 账号同池，这里只过滤展示，不影响选号。 -->
           <span class="chips" id="accPlat" role="group" aria-label="按平台筛选">
             <button class="xs chip on" data-plat="">全部</button>
             <button class="xs chip" data-plat="workbuddy">WorkBuddy</button>
             <button class="xs chip" data-plat="qoder">Qoder</button>
+            <button class="xs chip" data-plat="kiro">Kiro</button>
           </span>
           <span class="grow"></span>
           <span class="note" id="accNote"></span>
-          <!-- 批量操作按作用范围分组：两个平台都有的（签到 / 保活）在前，WorkBuddy 专属的在后，
-               只看 Qoder 或池里没有 WorkBuddy 号时隐藏后一组（app.js syncAccBatch）。 -->
+          <!-- 批量操作按作用范围分组：各平台都有的（签到 / 保活）在前，WorkBuddy 专属的在后，
+               只看 Qoder / Kiro 或池里没有 WorkBuddy 号时隐藏后一组（app.js syncAccBatch）。 -->
           <span class="btn-grp">
-            <button class="xs" id="btnCheckinAll" title="两个平台的账号都签到（Qoder 含活动奖励）">全部签到</button>
+            <button class="xs" id="btnCheckinAll" title="WorkBuddy / Qoder 账号签到（Qoder 含活动奖励）；Kiro 没有签到，改为刷新额度">全部签到</button>
             <button class="xs" id="btnKeepaliveAll" title="刷新全部账号的 token">全部保活</button>
           </span>
           <span class="btn-grp" id="accWbBatch">
@@ -954,6 +975,7 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
             <option value="global">WorkBuddy 国际版</option>
             <option value="qoder-cn">Qoder 国内版</option>
             <option value="qoder-intl">Qoder 国际版</option>
+            <option value="kiro">Kiro</option>
           </select>
           <select id="mdCap" aria-label="按能力筛选">
             <option value="">全部能力</option>
@@ -1105,6 +1127,7 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
         <button type="button" class="xs chip" data-target="cfgSecSchedule">定时任务</button>
         <button type="button" class="xs chip" data-target="cfgSecPool">账号池与流量治理</button>
         <button type="button" class="xs chip" data-target="cfgSecQoder">Qoder</button>
+        <button type="button" class="xs chip" data-target="cfgSecKiro">Kiro</button>
         <button type="button" class="xs chip" data-target="cfgSecUpstream">上游与高级</button>
         <button type="button" class="xs chip" data-target="cfgSecLogging">日志</button>
       </nav>
@@ -1307,9 +1330,55 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
             </div>
             <div class="hint">Qoder 账号与 WorkBuddy 账号同池调度、共用 API Key。调用名：<code>qoder:模型名</code>（按目录自动选区）、<code>qoder-cn:</code> / <code>qoder-intl:</code>（强制区域）。关闭后 Qoder 账号仍在列表里但不参与选号；改动需重启。</div>
             <div class="hr"></div>
-            <div class="switch"><span class="lb">跨平台回退（WorkBuddy ↔ Qoder）</span>
+            <div class="switch"><span class="lb">跨平台回退（WorkBuddy ↔ Qoder ↔ Kiro）</span>
               <input type="checkbox" name="cross_platform_fallback"></div>
-            <div class="hint">一个平台这次服务不了（没有可用号 / 该模型在所有号上冷却 / 轮转耗尽 / 渠道拦截 / 上游满载）时，自动换到另一平台的<b>等价模型</b>再试一次，例如 <code>cn:deepseek-v4.1-flash</code> → <code>qoder:DeepSeek-Flash</code>。等价模型按 <code>models.fallback</code> 映射 → 同名 → 同厂商同档位依次匹配，找不到就不回退。会消耗另一平台的额度；实际服务的模型写在响应头 <code>X-Coder2API-Fallback</code> 与请求记录里。即时生效。</div>
+            <div class="hint">一个平台这次服务不了（没有可用号 / 该模型在所有号上冷却 / 轮转耗尽 / 渠道拦截 / 上游满载）时，自动换到其它平台的<b>等价模型</b>再试一次，例如 <code>cn:deepseek-v4.1-flash</code> → <code>qoder:DeepSeek-Flash</code>。回退顺序：WorkBuddy → Qoder → Kiro，Qoder → WorkBuddy → Kiro，Kiro → WorkBuddy → Qoder。等价模型按 <code>models.fallback</code> 映射 → 同名 → 同厂商同档位依次匹配，找不到就不回退。会消耗另一平台的额度；实际服务的模型写在响应头 <code>X-Coder2API-Fallback</code> 与请求记录里。即时生效。</div>
+          </div>
+        </div>
+
+        <div class="box cfg-sec" id="cfgSecKiro">
+          <header><h3>Kiro</h3></header>
+          <div class="pad">
+            <div class="grid2">
+              <div class="switch"><span class="lb">启用 Kiro</span>
+                <input type="checkbox" name="kiro_enabled"></div>
+              <label class="fld"><span class="lb">推理入口</span>
+                <select name="kiro_endpoint">
+                  <option value="auto">auto — Kiro IDE → CodeWhisperer → AmazonQ 依次回退（默认）</option>
+                  <option value="kiro">kiro — 优先 Kiro IDE 入口</option>
+                  <option value="codewhisperer">codewhisperer — 优先 CodeWhisperer 入口</option>
+                  <option value="amazonq">amazonq — 优先 AmazonQ 入口</option>
+                </select>
+                <span class="hint">指定者优先，其余作回退；API Key 账号固定走 Kiro 运行时入口；需重启</span></label>
+            </div>
+            <div class="grid2">
+              <label class="fld"><span class="lb">出站代理</span>
+                <input name="kiro_proxy_url" placeholder="留空 = 跟随 HTTPS_PROXY 环境变量" autocomplete="off" spellcheck="false">
+                <span class="hint">http:// / https:// / socks5://；需重启</span></label>
+              <label class="fld"><span class="lb">Kiro IDE 版本（User-Agent）</span>
+                <input name="kiro_version" placeholder="留空 = 内置默认" autocomplete="off" spellcheck="false">
+                <span class="hint">需重启</span></label>
+            </div>
+            <div class="cfg-sub">调度</div>
+            <div class="grid2">
+              <label class="fld"><span class="lb">Kiro 调度策略</span>
+                <select name="strategy_kiro">
+                  <option value="weighted_random">加权随机（默认）</option>
+                  <option value="round_robin">轮询</option>
+                  <option value="sequential_exhaust">顺序耗尽</option>
+                </select></label>
+              <label class="fld"><span class="lb">Kiro 账号顺序（UID）</span>
+                <input name="kiro_account_order" placeholder="uid1, uid2, uid3"></label>
+            </div>
+            <div class="grid2">
+              <label class="fld"><span class="lb">Kiro 在途上限</span>
+                <input name="max_in_flight_kiro" type="number" min="0" placeholder="0">
+                <span class="hint">0 = 跟随单账号最大在途</span></label>
+              <label class="fld"><span class="lb">Kiro 积分保底</span>
+                <input name="credit_floor_kiro" type="number" min="0" placeholder="0">
+                <span class="hint">单位是 Kiro Credits，与其它平台分开计；0 关闭</span></label>
+            </div>
+            <div class="hint">Kiro 账号与其它平台账号同池调度、共用 API Key。调用名：<code>kiro:模型名</code>，例如 <code>kiro:claude-sonnet-4.5</code>；思考默认关闭，请求带 <code>reasoning_effort</code>（low / medium / high / xhigh / max）、<code>thinking.budget_tokens</code> 或模型名加 <code>-thinking</code> 后缀即开启。关闭后 Kiro 账号仍在列表里但不参与选号；启用开关、入口、代理、版本改动需重启，调度与保底即时生效。</div>
           </div>
         </div>
 
@@ -1513,11 +1582,12 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
   </div>
 </div>
 
-<!-- 添加账号：WorkBuddy 与 Qoder 账号进同一个池，这里按来源分 tab。
+<!-- 添加账号：WorkBuddy / Qoder / Kiro 账号进同一个池，这里按来源分 tab。
      Qoder 登录是 OAuth 设备授权（PKCE verifier 只留在服务端内存，浏览器只拿 state 与链接）；
-     PAT 只经面板提交给服务端落盘，不写进浏览器存储。 -->
+     Kiro 登录是 AWS 设备授权（OIDC 客户端凭证与 deviceCode 只在服务端内存，浏览器只拿 state、验证码与链接）；
+     PAT 与 Kiro 凭证只经面板提交给服务端落盘，不写进浏览器存储。 -->
 <div class="veil" id="addVeil">
-  <div class="dlg" style="width:660px">
+  <div class="dlg" style="width:720px">
     <header>
       <h3>添加账号</h3>
       <div class="tabs" id="addTabs">
@@ -1525,6 +1595,8 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
         <button class="tab" data-tab="import">导入 JSON</button>
         <button class="tab" data-tab="qdlogin">Qoder 登录</button>
         <button class="tab" data-tab="qdpat">Qoder PAT</button>
+        <button class="tab" data-tab="krlogin">Kiro 登录</button>
+        <button class="tab" data-tab="krimport">Kiro 导入</button>
       </div>
     </header>
     <div class="body">
@@ -1585,6 +1657,47 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
         <div id="qdPatDone" class="state ok" hidden style="margin-top:10px"></div>
         <div id="qdPatErr" class="state err" hidden style="margin-top:10px"></div>
       </div>
+      <!-- Kiro 登录（AWS 设备授权：Builder ID / IAM Identity Center） -->
+      <div id="addTabKrLogin" class="tab-panel" hidden>
+        <div id="krPick">
+          <div class="realm-row">
+            <span class="hint" style="font-size:12px">方式：</span>
+            <label class="realm-opt"><input type="radio" name="krMethod" value="builder" checked> AWS Builder ID（个人）</label>
+            <label class="realm-opt"><input type="radio" name="krMethod" value="idc"> IAM Identity Center（组织）</label>
+          </div>
+          <div id="krIdcFields" class="grid2" hidden>
+            <label class="fld"><span class="lb">Start URL</span>
+              <input id="krStartUrl" placeholder="https://d-xxxxxxxxxx.awsapps.com/start" autocomplete="off" spellcheck="false"></label>
+            <label class="fld"><span class="lb">区域</span>
+              <input id="krRegion" placeholder="us-east-1" autocomplete="off" spellcheck="false"></label>
+          </div>
+          <div class="hint" style="font-size:12px;margin-top:2px">网关生成验证码与链接，你在浏览器里用 AWS 账号（邮箱 + 密码）登录并确认即可；密码只在 AWS 页面输入，不经过网关。</div>
+        </div>
+        <div id="krLoad" class="state" hidden><span class="dots">正在获取授权链接</span></div>
+        <div id="krLoginReady" hidden>
+          <div class="state">在浏览器打开以下链接，核对验证码后完成登录：</div>
+          <div class="url" id="krUrl"></div>
+          <div class="kr-code"><span class="lab">验证码</span><code id="krUserCode"></code></div>
+          <div class="state" id="krPoll"><span class="dots">等待授权完成，自动检测中</span></div>
+        </div>
+        <div id="krDone" class="state ok" hidden></div>
+        <div id="krErr" class="state err" hidden></div>
+      </div>
+      <!-- Kiro 凭证导入（JSON / 行格式 / refresh token / API Key） -->
+      <div id="addTabKrImport" class="tab-panel" hidden>
+        <div class="hint" style="margin-bottom:6px">粘贴凭证或选择文件，一次可导入多个账号。支持：</div>
+        <ul class="kr-fmt">
+          <li>JSON：Kiro-Go / Kiro Account Manager 导出，或 Kiro IDE 的 <code>kiro-auth-token.json</code>（IdC 账号把同目录的 clientId 文件一起选上，自动配对）</li>
+          <li>行格式：<code>邮箱----密码----refreshToken----clientId----clientSecret</code>（密码列只为兼容导出格式，不使用也不保存）</li>
+          <li>单独一行 refresh token，或 Kiro API Key <code>ksk_xxx</code>（可写 <code>ksk_xxx|eu-central-1</code> 指定区域）</li>
+        </ul>
+        <textarea id="krImportText" rows="6" spellcheck="false" autocomplete="off" aria-label="Kiro 凭证"
+          placeholder="粘贴 JSON 或每行一个账号"></textarea>
+        <input type="file" id="krImportFile" accept=".json,.txt" multiple aria-label="选择 Kiro 凭证文件">
+        <div id="krImportDone" class="state ok" hidden style="margin-top:10px"></div>
+        <div id="krImportErr" class="state err" hidden style="margin-top:10px"></div>
+        <div id="krImportRes" class="kr-res" hidden></div>
+      </div>
     </div>
     <footer>
       <span class="grow"></span>
@@ -1600,6 +1713,14 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
       </span>
       <span id="addFtQdPat" class="ft-grp" hidden>
         <button id="btnQdPatSave" class="primary">导入</button>
+      </span>
+      <span id="addFtKrLogin" class="ft-grp" hidden>
+        <button id="btnKrStartLogin" class="primary">获取验证码</button>
+        <button id="btnKrCopyCode" hidden>复制验证码</button>
+        <button id="btnKrOpenUrl" class="primary" hidden>在浏览器打开</button>
+      </span>
+      <span id="addFtKrImport" class="ft-grp" hidden>
+        <button id="btnKrImport" class="primary">导入</button>
       </span>
       <button id="btnCloseAdd">关闭</button>
     </footer>

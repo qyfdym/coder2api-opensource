@@ -58,21 +58,70 @@ func joinHint(hint, more string) string {
 	}
 }
 
-// otherPlatformRealms 另一平台的两个路由域。
-func otherPlatformRealms(realm string) [2]string {
-	if auth.IsQoderRealm(realm) {
-		return [2]string{"cn", "global"}
+// platformOfRealm 路由域所属平台（workbuddy / qoder / kiro）。
+func platformOfRealm(realm string) string {
+	switch {
+	case auth.IsQoderRealm(realm) || realm == qoderAutoRealm:
+		return auth.PlatformQoder
+	case auth.IsKiroRealm(realm):
+		return auth.PlatformKiro
 	}
-	return [2]string{auth.RealmQoderCN, auth.RealmQoderIntl}
+	return auth.PlatformWorkBuddy
 }
 
-// otherPlatformUsable 另一平台此刻有没有可能接手（已装配 + 池里有该平台账号）。
-func (h *Handler) otherPlatformUsable(realm string) bool {
-	other := otherPlatformRealms(realm)
-	if auth.IsQoderRealm(other[0]) && h.cfg.Qoder == nil {
-		return false
+// platformRealms 平台的全部路由域。
+func platformRealms(platform string) []string {
+	switch platform {
+	case auth.PlatformQoder:
+		return []string{auth.RealmQoderCN, auth.RealmQoderIntl}
+	case auth.PlatformKiro:
+		return []string{auth.RealmKiro}
 	}
-	return h.realmHasAccounts(other[0]) || h.realmHasAccounts(other[1])
+	return []string{"cn", "global"}
+}
+
+// fallbackPlatforms 跨平台回退时依次尝试的其它平台（顺序固定：WorkBuddy 优先其次 Qoder，
+// Kiro 排最后——Kiro 是 Claude 系模型，与另外两个平台同名 / 同档位的模型最少）。
+func fallbackPlatforms(realm string) []string {
+	switch platformOfRealm(realm) {
+	case auth.PlatformQoder:
+		return []string{auth.PlatformWorkBuddy, auth.PlatformKiro}
+	case auth.PlatformKiro:
+		return []string{auth.PlatformWorkBuddy, auth.PlatformQoder}
+	}
+	return []string{auth.PlatformQoder, auth.PlatformKiro}
+}
+
+// platformUsable 平台此刻有没有可能接手（已装配 + 池里有该平台账号）。
+func (h *Handler) platformUsable(platform string) bool {
+	switch platform {
+	case auth.PlatformQoder:
+		if h.cfg.Qoder == nil {
+			return false
+		}
+	case auth.PlatformKiro:
+		if h.cfg.Kiro == nil {
+			return false
+		}
+	}
+	for _, r := range platformRealms(platform) {
+		if h.realmHasAccounts(r) {
+			return true
+		}
+	}
+	return false
+}
+
+// usableOtherPlatformNames 首选平台失败时、池里有号的其它平台名（"Qoder" / "Qoder、Kiro"）；
+// 没有返回空串。用于「其它平台有号但找不到等价模型」的提示。
+func (h *Handler) usableOtherPlatformNames(realm string) string {
+	var names []string
+	for _, p := range fallbackPlatforms(realm) {
+		if h.platformUsable(p) {
+			names = append(names, platformName(platformRealms(p)[0]))
+		}
+	}
+	return strings.Join(names, "、")
 }
 
 // chatFailNote 一句话说明某平台这一轮为什么没服务成（进请求记录的 note）。
@@ -117,8 +166,11 @@ func (h *Handler) chatResultNote(fallbackFrom, primaryNote, realm string, mb poo
 
 // platformName 路由域 → 平台展示名。
 func platformName(realm string) string {
-	if auth.IsQoderRealm(realm) {
+	switch platformOfRealm(realm) {
+	case auth.PlatformQoder:
 		return "Qoder"
+	case auth.PlatformKiro:
+		return "Kiro"
 	}
 	return "WorkBuddy"
 }
@@ -137,9 +189,12 @@ func lookupFallbackMapping(m map[string]string, reqModel, realm, bare string) (s
 		return "", false
 	}
 	keys := []string{reqModel, realm + ":" + bare}
-	if auth.IsQoderRealm(realm) {
+	switch platformOfRealm(realm) {
+	case auth.PlatformQoder:
 		keys = append(keys, "qoder:"+bare)
-	} else {
+	case auth.PlatformKiro:
+		// 「kiro:模型」已经在上面（路由域就叫 kiro），不再匹配裸名：裸名键属于 WorkBuddy。
+	default:
 		keys = append(keys, bare)
 	}
 	for _, k := range keys {
@@ -164,18 +219,37 @@ func (h *Handler) crossPlatformTarget(reqModel, realm, bare string) (fallbackTar
 				return fallbackTarget{}, false
 			}
 			t.realm, t.cross = h.resolveQoderAuto(tb)
+		case auth.IsKiroRealm(tr):
+			// Kiro 单一路由域，不做平台内互退。
 		case !explicit:
 			t.cross = h.cfg.Pool.CrossDomainFallback()
 		}
-		if auth.IsQoderRealm(t.realm) && h.cfg.Qoder == nil {
+		if (auth.IsQoderRealm(t.realm) && h.cfg.Qoder == nil) || (auth.IsKiroRealm(t.realm) && h.cfg.Kiro == nil) {
 			return fallbackTarget{}, false
 		}
 		return t, h.realmHasAccounts(t.realm) || (t.cross && h.realmHasAccounts(otherRealm(t.realm)))
 	}
-	if auth.IsQoderRealm(realm) {
-		return h.workbuddyEquivalent(bare)
+	for _, p := range fallbackPlatforms(realm) {
+		if !h.platformUsable(p) {
+			continue
+		}
+		var (
+			t  fallbackTarget
+			ok bool
+		)
+		switch p {
+		case auth.PlatformWorkBuddy:
+			t, ok = h.workbuddyEquivalent(bare)
+		case auth.PlatformQoder:
+			t, ok = h.qoderEquivalent(bare)
+		case auth.PlatformKiro:
+			t, ok = h.kiroEquivalent(bare)
+		}
+		if ok {
+			return t, true
+		}
 	}
-	return h.qoderEquivalent(bare)
+	return fallbackTarget{}, false
 }
 
 // qoderEquivalent WorkBuddy 模型 → Qoder 等价模型（只看池里有 Qoder 账号的区）。
@@ -257,9 +331,11 @@ func (h *Handler) workbuddyEquivalent(bare string) (fallbackTarget, bool) {
 var modelVendors = []string{"deepseek", "minimax", "hunyuan", "gemini", "claude", "qwen", "kimi", "glm", "gpt", "hy"}
 
 // modelTiers 档位词：同厂商下 flash 与 pro 的能力、价格差很多，档位不同就不算等价。
+// Claude 的 opus / sonnet / haiku 同理（价格差 5–15 倍），各自成档。
 var modelTiers = map[string]bool{
 	"flash": true, "pro": true, "max": true, "plus": true, "mini": true, "lite": true,
 	"turbo": true, "air": true, "ultra": true, "nano": true,
+	"opus": true, "sonnet": true, "haiku": true,
 }
 
 var versionRe = regexp.MustCompile(`\d+(?:\.\d+)*`)

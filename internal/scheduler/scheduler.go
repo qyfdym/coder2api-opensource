@@ -27,7 +27,10 @@ type Config struct {
 	// Qoder Qoder 账号的签到 / 保活 / 余额（nil = Qoder 账号一律跳过）。
 	// Qoder 账号与 WorkBuddy 账号同池，但所有 WorkBuddy 专属任务（成长 / 旅行 / 活跃上报 /
 	// 夜猫子 / 连登 / 补偿）都只对 WorkBuddy 账号执行；签到、保活、余额三类保号任务按平台分派。
-	Qoder          QoderOps
+	Qoder QoderOps
+	// Kiro Kiro 账号的保活 / 余额（nil = Kiro 账号一律跳过）。Kiro 没有签到体系，
+	// 签到时点只顺带刷新一次余额。
+	Kiro           KiroOps
 	CheckinHours   []int // 默认 [9, 21]
 	TravelHours    []int // 默认 [9,21]：一趟派出 + 一趟领奖闭环
 	ActivityHours  []int // 默认 [10]
@@ -482,6 +485,10 @@ func (s *Scheduler) RunCheckinNow() {
 			s.qoderCheckin(st.UID, a)
 			continue
 		}
+		if a.IsKiro() {
+			s.kiroBalance(st.UID, a) // Kiro 没有签到：顺带刷新余额（额度重置后自动解冻）
+			continue
+		}
 		// D4 门控：realm=global 账号无签到体系，直接跳过（不发起任何上游调用，避免风控）。
 		// 经 auth.Realm() 统一判定：逃生门（global.enabled=false）下 global 账号被降级为 cn、
 		// 按 CN 处理——这是逃生门的刻意语义（纯 CN 部署锁死一切 global），与引用处一致。
@@ -551,8 +558,8 @@ func (s *Scheduler) runActivity(ctx context.Context) {
 			continue
 		}
 		a := s.cfg.Pool.AuthByUID(st.UID)
-		if a == nil || a.AccessTokenValue() == "" || a.IsQoder() {
-			continue // Qoder 号没有 WorkBuddy 活跃 / 连登体系
+		if a == nil || a.AccessTokenValue() == "" || !a.IsWorkBuddy() {
+			continue // Qoder / Kiro 号没有 WorkBuddy 活跃 / 连登体系
 		}
 		// 企业版跳过活跃上报：/v2/report 本身返回 200（不报错），但它唯一的作用是
 		// 点亮 growth 连登天数 / 解锁 first_buddy 领养——这两者对企业号都是 403
@@ -619,10 +626,14 @@ func (s *Scheduler) RunKeepaliveNow() {
 		}
 		a := s.cfg.Pool.AuthByUID(st.UID)
 		if a == nil || a.RefreshTokenValue() == "" {
-			continue
+			continue // 含 Kiro API Key 账号：没有 refresh token、也不需要保活
 		}
 		if a.IsQoder() {
 			s.qoderKeepalive(st.UID, a, st.Disabled)
+			continue
+		}
+		if a.IsKiro() {
+			s.kiroKeepalive(st.UID, a, st.Disabled)
 			continue
 		}
 		if err := s.cfg.Upstream.RefreshToken(a); err != nil {
@@ -679,6 +690,10 @@ func (s *Scheduler) RunBalanceRefreshNow() {
 			defer wg.Done()
 			if a.IsQoder() {
 				s.qoderBalance(uid, a)
+				return
+			}
+			if a.IsKiro() {
+				s.kiroBalance(uid, a)
 				return
 			}
 			remain, total, expiring, earliestAt, earliestRemaining, buckets, err := s.cfg.Upstream.UserResourceSnapshot(a, expiringSoon)

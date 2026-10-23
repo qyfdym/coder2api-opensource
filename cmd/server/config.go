@@ -57,6 +57,26 @@ type Config struct {
 		QueueMaxWaitSeconds int `json:"queue_max_wait_seconds"`
 	} `json:"qoder"`
 
+	// Kiro Kiro 平台（AWS CodeWhisperer / Amazon Q Developer，Go 原生实现）。Kiro 账号与其它平台
+	// 账号在同一个账号池里，共用 api_key、选号、冷却、熔断与会话粘性；模型名用 kiro: 前缀。
+	// 账号文件与其它平台同目录（auth_dir/kiro-<uid>.json）。
+	//
+	// 装配期字段（要建 http.Client），改动需重启。
+	Kiro struct {
+		// Enabled 缺省 true；false = 不装配 Kiro（kiro* 账号文件仍会载入但选不到号，
+		// 面板不提供 Kiro 添加账号入口）。
+		Enabled bool `json:"enabled"`
+		// Endpoint 推理入口偏好：auto（缺省，Kiro IDE → CodeWhisperer → AmazonQ 依次回退）/
+		// kiro / codewhisperer / amazonq（指定者优先，其余作回退）。
+		Endpoint string `json:"endpoint"`
+		// ProxyURL Kiro 出站代理（http:// / https:// / socks5://）；空 = 跟随 HTTPS_PROXY 环境变量。
+		ProxyURL string `json:"proxy_url"`
+		// KiroVersion 出站 User-Agent 里的 Kiro IDE 版本；空 = 内置默认。
+		KiroVersion string `json:"kiro_version"`
+		// HeaderTimeoutSeconds 推理请求等待响应头上限；<=0 回落 120。
+		HeaderTimeoutSeconds int `json:"header_timeout_seconds"`
+	} `json:"kiro"`
+
 	Logging struct {
 		// RequestArchiveEnabled 请求元数据 JSONL 归档开关，缺省 true。
 		RequestArchiveEnabled bool `json:"request_archive_enabled"`
@@ -236,6 +256,7 @@ type Config struct {
 		MaxInFlight        int                     `json:"max_in_flight"`        // 单账号最大在途请求数，0 = 不限
 		MaxInFlightGlobal  int                     `json:"max_in_flight_global"` // global 域单账号在途上限（WAF 风控紧域压低并发），0 = 回落默认 2
 		MaxInFlightQoder   int                     `json:"max_in_flight_qoder"`  // Qoder 单号在途上限，0 = 跟随 max_in_flight（团队席位并发满会排队 10605，团队号可调 1）
+		MaxInFlightKiro    int                     `json:"max_in_flight_kiro"`   // Kiro 单号在途上限，0 = 跟随 max_in_flight
 		BreakerThreshold   int                     `json:"breaker_threshold"`    // 连续失败次数触发熔断，默认 3
 		BreakerCooldown    string                  `json:"breaker_cooldown"`     // 基础熔断时长，默认 "30m"
 		BreakerCooldownMax string                  `json:"breaker_cooldown_max"` // 指数退避封顶，默认 "6h"
@@ -269,7 +290,9 @@ type Config struct {
 		// CreditFloorQoder Qoder 账号的积分保底（单位是 Qoder Credits，与 WorkBuddy 积分
 		// 不同，单独一条线）。语义同 credit_floor；默认 0 = 关闭；负值钳 0。
 		CreditFloorQoder int64 `json:"credit_floor_qoder"`
-		// CrossPlatformFallback 跨平台回退（WorkBuddy ↔ Qoder），默认 true。首选平台这次服务
+		// CreditFloorKiro Kiro 账号的积分保底（单位 Kiro Credits）。语义同 credit_floor；默认 0 = 关闭。
+		CreditFloorKiro int64 `json:"credit_floor_kiro"`
+		// CrossPlatformFallback 跨平台回退（WorkBuddy ↔ Qoder ↔ Kiro），默认 true。首选平台这次服务
 		// 不了（没有可用号 / 该模型在所有号上冷却 / 轮转耗尽 / 渠道拦截 / 上游满载）时，换到
 		// 另一平台的等价模型再试一轮（等价模型：models.fallback 映射 > 同名 > 同厂商同档位）。
 		// 不论模型名带不带前缀都生效；会消耗另一平台的额度，不需要时显式关掉。
@@ -351,13 +374,17 @@ func Default() *Config {
 	c.Global.Enabled = true
 	c.Features.SanitizeBlacklistFingerprints = true
 	c.Prompt.Mode = "passthrough" // 缺省 passthrough：透传客户端原始 system（对齐上游；custom 由用户显式选择）
-	c.Pool.Strategy = pool.RegionStrategies{Domestic: pool.WeightedRandom, International: pool.WeightedRandom, Qoder: pool.WeightedRandom}
+	c.Pool.Strategy = pool.RegionStrategies{Domestic: pool.WeightedRandom, International: pool.WeightedRandom,
+		Qoder: pool.WeightedRandom, Kiro: pool.WeightedRandom}
 	// 跨平台回退缺省开：统一账号池里一个平台服务不了时换另一平台的等价模型（只有一个平台的
 	// 部署零影响——另一平台没号就不会回退）。
 	c.Pool.CrossPlatformFallback = true
 	// Qoder 缺省启用（没有 qoder* 账号文件时零影响）；默认区 cn。
 	c.Qoder.Enabled = true
 	c.Qoder.DefaultRealm = "cn"
+	// Kiro 缺省启用（没有 kiro* 账号文件时零影响）。
+	c.Kiro.Enabled = true
+	c.Kiro.Endpoint = "auto"
 	c.Pool.MaxInFlight = 3
 	// MaxInFlightGlobal 缺省 2：global 域 WAF 风控更紧，压低单号并发（WAF 403 修复
 	// P1-1）；0/负数 normalize 回落默认（与 max_in_flight 的 0=不限语义不同，分档键
@@ -548,6 +575,9 @@ func (c *Config) normalize() error {
 		c.Panel.PackageDetailLimit = 5
 	}
 	if err := c.normalizeQoder(); err != nil {
+		return err
+	}
+	if err := c.normalizeKiro(); err != nil {
 		return err
 	}
 	if c.Logging.RequestRetentionDays <= 0 {
@@ -800,6 +830,34 @@ func (c *Config) normalizeQoder() error {
 	}
 	if c.Qoder.QueueMaxWaitSeconds <= 0 {
 		c.Qoder.QueueMaxWaitSeconds = 600
+	}
+	return nil
+}
+
+// normalizeKiro 归一 kiro 段：入口偏好容错，代理地址只认 http(s) / socks5，非法值 fail fast。
+func (c *Config) normalizeKiro() error {
+	switch e := strings.ToLower(strings.TrimSpace(c.Kiro.Endpoint)); e {
+	case "", "auto":
+		c.Kiro.Endpoint = "auto"
+	case "kiro", "codewhisperer", "amazonq":
+		c.Kiro.Endpoint = e
+	default:
+		return fmt.Errorf("kiro.endpoint: %q 不是合法值（auto / kiro / codewhisperer / amazonq）", c.Kiro.Endpoint)
+	}
+	c.Kiro.ProxyURL = strings.TrimSpace(c.Kiro.ProxyURL)
+	if p := strings.ToLower(c.Kiro.ProxyURL); p != "" &&
+		!strings.HasPrefix(p, "http://") && !strings.HasPrefix(p, "https://") && !strings.HasPrefix(p, "socks5://") {
+		return fmt.Errorf("kiro.proxy_url: %q 必须是 http:// / https:// / socks5:// 地址", c.Kiro.ProxyURL)
+	}
+	c.Kiro.KiroVersion = strings.TrimSpace(c.Kiro.KiroVersion)
+	if c.Kiro.HeaderTimeoutSeconds <= 0 {
+		c.Kiro.HeaderTimeoutSeconds = 120
+	}
+	if c.Pool.CreditFloorKiro < 0 {
+		c.Pool.CreditFloorKiro = 0
+	}
+	if c.Pool.MaxInFlightKiro < 0 {
+		c.Pool.MaxInFlightKiro = 0
 	}
 	return nil
 }

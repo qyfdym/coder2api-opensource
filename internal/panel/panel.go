@@ -24,6 +24,8 @@ import (
 	"github.com/linguo2625469/workbuddy2api-panel/internal/auth"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/credithist"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/httpauth"
+	"github.com/linguo2625469/workbuddy2api-panel/internal/kiro"
+	"github.com/linguo2625469/workbuddy2api-panel/internal/kiroacct"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/livecfg"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/pool"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/qoder"
@@ -75,6 +77,10 @@ type Config struct {
 	// Qoder Qoder 平台账号运维（Go 原生实现）。nil = 未启用：面板不提供 Qoder 登录 /
 	// 签到入口，Qoder 账号（若有）的签到 / 余额按钮返回 501。
 	Qoder *qoderacct.Service
+
+	// Kiro Kiro 平台账号运维（Go 原生实现）。nil = 未启用：面板不提供 Kiro 添加账号入口，
+	// Kiro 账号（若有）的余额按钮返回 501。
+	Kiro *kiroacct.Service
 }
 
 // Panel 管理面板 handler。挂载方式：外层 mux Handle("/panel/", panel)，
@@ -104,6 +110,10 @@ type Panel struct {
 	// qdLogins 进行中的 Qoder 设备授权会话（state → 会话）；见 qoder.go。
 	qdLoginMu sync.Mutex
 	qdLogins  map[string]*qoder.LoginSession
+
+	// krLogins 进行中的 Kiro 设备授权会话（会话 ID → 会话，含一次性的 OIDC 客户端凭证）；见 kiro.go。
+	krLoginMu sync.Mutex
+	krLogins  map[string]*kiro.LoginSession
 }
 
 // tryLockAccount 尝试锁定账号的任务执行；已在执行返回 false。
@@ -153,6 +163,7 @@ func New(cfg Config) *Panel {
 		logs:     NewRing(500),
 		logins:   map[string]loginSession{},
 		qdLogins: map[string]*qoder.LoginSession{},
+		krLogins: map[string]*kiro.LoginSession{},
 	}
 	p.routes()
 	return p
@@ -216,6 +227,12 @@ func (p *Panel) routes() {
 	p.mux.HandleFunc("GET /panel/api/qoder/campaigns", p.withAuth(p.qoderCampaigns))
 	p.mux.HandleFunc("POST /panel/api/qoder/checkin_all", p.withAuth(p.qoderCheckinAll))
 	p.mux.HandleFunc("POST /panel/api/qoder/accounts/{uid}/checkin", p.withAuth(p.qoderAccountCheckin))
+
+	// Kiro 平台（Go 原生，账号与其它平台同池）：添加账号（设备授权登录 / 凭证导入）。见 kiro.go。
+	p.mux.HandleFunc("POST /panel/api/kiro/login/start", p.withAuth(p.kiroLoginStart))
+	p.mux.HandleFunc("GET /panel/api/kiro/login/poll", p.withAuth(p.kiroLoginPoll))
+	p.mux.HandleFunc("POST /panel/api/kiro/login/cancel", p.withAuth(p.kiroLoginCancel))
+	p.mux.HandleFunc("POST /panel/api/kiro/import", p.withAuth(p.kiroImport))
 }
 
 // ServeHTTP 统一入口：先写安全响应头再分发，保证页面、静态资源、API
@@ -286,6 +303,7 @@ func (p *Panel) overview(w http.ResponseWriter, r *http.Request) {
 		"auth_required":   p.apiKey() != "",
 		"redis_mode":      p.cfg.RedisMode,
 		"qoder_enabled":   p.cfg.Qoder != nil,
+		"kiro_enabled":    p.cfg.Kiro != nil,
 		"sticky_sessions": sticky,
 		"total":           total,
 		"healthy":         healthy,
@@ -481,6 +499,8 @@ func (p *Panel) models(w http.ResponseWriter, r *http.Request) {
 	// Qoder 两区：池里有该区账号才列（与 /v1/models 同口径），id 用显式区前缀
 	// （qoder-cn:X / qoder-intl:X）——面板要看清每区的目录；对外的 qoder:X 会按目录自动选区。
 	out = append(out, p.qoderModelEntries(r.Context(), &fetchErrs)...)
+	// Kiro：池里有 Kiro 账号才列（与 /v1/models 同口径）。
+	out = append(out, p.kiroModelEntries(r.Context(), &fetchErrs)...)
 
 	if len(out) == 0 {
 		if len(fetchErrs) > 0 {
@@ -649,6 +669,17 @@ func (p *Panel) accountCheckin(w http.ResponseWriter, r *http.Request) {
 		p.qoderCheckinOne(w, r, a, qoderacct.CheckinDaily)
 		return
 	}
+	if a.IsKiro() {
+		// Kiro 没有签到体系：退化为刷新额度（前端对 Kiro 号不渲染「签到」按钮，这里是 API 侧防御）。
+		resp := map[string]any{"ok": true, "checkin_done": false, "checkin_message": "Kiro 没有签到体系（已跳过签到，仅刷新额度）"}
+		if remain, total, kerr := p.kiroRefreshCredits(r.Context(), a); kerr != nil {
+			resp["balance_error"] = kerr.Error()
+		} else {
+			resp["credits"], resp["credits_total"] = remain, total
+		}
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
 	checkinMsg := ""
 	checkinDone := false
 	// 企业版无签到体系（上游 400 code 10001「企业账号不支持该操作」）：不发起该调用，
@@ -707,6 +738,15 @@ func (p *Panel) accountBalance(w http.ResponseWriter, r *http.Request) {
 		remain, total, qerr := p.qoderRefreshCredits(r.Context(), a)
 		if qerr != nil {
 			writeErr(w, http.StatusBadGateway, "qoder credits: "+qerr.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "credits": remain, "credits_total": total})
+		return
+	}
+	if a.IsKiro() {
+		remain, total, kerr := p.kiroRefreshCredits(r.Context(), a)
+		if kerr != nil {
+			writeErr(w, http.StatusBadGateway, "kiro credits: "+kerr.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "credits": remain, "credits_total": total})
@@ -1062,6 +1102,17 @@ func (p *Panel) packages(w http.ResponseWriter, r *http.Request) {
 			a := p.cfg.Pool.AuthByUID(s.UID)
 			if a == nil {
 				it.Error = "account not loaded"
+				out[i] = it
+				return
+			}
+			if a.IsKiro() {
+				it.Platform = auth.PlatformKiro
+				packs, remain, size, err := p.kiroPackages(r.Context(), a)
+				if err != nil {
+					it.Error = err.Error()
+				} else {
+					it.Packages, it.Remain, it.Size = packs, remain, size
+				}
 				out[i] = it
 				return
 			}

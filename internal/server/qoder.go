@@ -59,16 +59,24 @@ func (h *Handler) hiddenKey(realm, bare string) string {
 			return realm + ":" + m.ID
 		}
 	}
+	if auth.IsKiroRealm(realm) {
+		// Kiro 模型同样接受多种写法（claude-sonnet-4-5 / claude-sonnet-4.5 / -thinking 后缀）。
+		return realm + ":" + h.kiroModelID(bare)
+	}
 	return realm + ":" + bare
 }
 
-// modelRate 积分倍率（用量记账与积分保底用）：Qoder 域取 Qoder 目录的 price_factor。
+// modelRate 积分倍率（用量记账与积分保底用）：Qoder 域取 Qoder 目录的 price_factor，
+// Kiro 域取 Kiro 目录的 rateMultiplier。
 func (h *Handler) modelRate(realm, bare string) string {
 	if auth.IsQoderRealm(realm) {
 		if h.cfg.Qoder == nil {
 			return ""
 		}
 		return h.cfg.Qoder.ModelRate(realm, bare)
+	}
+	if auth.IsKiroRealm(realm) {
+		return h.cfg.Kiro.ModelRate(bare)
 	}
 	if h.cfg.Upstream == nil {
 		return ""

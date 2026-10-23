@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/linguo2625469/workbuddy2api-panel/internal/kiro"
 )
 
 // Snapshot 一次读取的不可变配置视图。
@@ -78,6 +80,12 @@ func NormalizeHiddenModels(hidden []string) map[string]struct{} {
 			case "qoder":
 				out["qoder-cn:"+bare] = struct{}{}
 				out["qoder-intl:"+bare] = struct{}{}
+				continue
+			case "kiro":
+				// Kiro 模型名按目录口径归一（claude-sonnet-4-5 ≡ claude-sonnet-4.5，大小写不敏感），
+				// 与 handler.hiddenKey 的查表键一致。
+				id, _ := kiro.ParseModel(strings.TrimSpace(bare), "-thinking")
+				out["kiro:"+id] = struct{}{}
 				continue
 			}
 		}

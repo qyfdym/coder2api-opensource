@@ -439,7 +439,7 @@ func (p *Panel) qoderCampaigns(w http.ResponseWriter, r *http.Request) {
 func wbOnly(list []pool.Status) []pool.Status {
 	out := list[:0:0]
 	for _, st := range list {
-		if st.Platform != auth.PlatformQoder {
+		if st.Platform != auth.PlatformQoder && st.Platform != auth.PlatformKiro {
 			out = append(out, st)
 		}
 	}
