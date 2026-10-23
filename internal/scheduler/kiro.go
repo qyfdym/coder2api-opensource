@@ -22,6 +22,12 @@ type KiroOps interface {
 	Balance(a *auth.Auth) (remain, total int64, resetAt time.Time, err error)
 }
 
+// KiroExhaustPolicy 可选接口：额度用完后是否应该冷却该账号。KiroOps 的实现同时实现它时，
+// 调度器据此跳过「已打开超额」的号（上游仍会放行，超出部分按量计费）；没实现 = 一律冷却。
+type KiroExhaustPolicy interface {
+	ShouldCoolOnExhausted(a *auth.Auth, remain, total int64) bool
+}
+
 // kiroKeepalive 单号保活（会话死亡连续计数语义与其它平台一致）。
 func (s *Scheduler) kiroKeepalive(uid string, a *auth.Auth, disabled bool) {
 	if s.cfg.Kiro == nil {
@@ -50,7 +56,13 @@ func (s *Scheduler) kiroBalance(uid string, a *auth.Auth) {
 	}
 	s.cfg.Pool.ReenableIfCredits(uid, remain, total)
 	s.cfg.Pool.SetCreditsSnapshot(uid, pool.CreditsSnapshot{Remain: remain, Total: total})
-	if remain <= 0 && total > 0 {
+	// 「额度用完」是冷却的必要条件；策略接口只能在此基础上否决（例如已打开超额），
+	// 不能让还有额度的号被冷却——这个前提不依赖实现方记得再判断一次。
+	cool := remain <= 0 && total > 0
+	if p, ok := s.cfg.Kiro.(KiroExhaustPolicy); ok && cool {
+		cool = p.ShouldCoolOnExhausted(a, remain, total)
+	}
+	if cool {
 		d := time.Until(resetAt)
 		if resetAt.IsZero() || d < time.Minute {
 			d = time.Hour

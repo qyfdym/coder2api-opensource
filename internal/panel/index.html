@@ -366,6 +366,17 @@ label.fld > .hint { display: block; font-size: 11.5px; color: var(--ink-3); marg
 #krImportText:focus { outline: none; border-color: var(--accent); }
 .kr-res { margin-top: 8px; font-size: 12px; color: var(--ink-3); line-height: 1.7; max-height: 160px; overflow: auto; }
 .kr-res div { overflow-wrap: anywhere; }
+#krPortalCallback { display: block; width: 100%; resize: vertical; margin-bottom: 4px;
+  font: 12px/1.6 var(--mono); color: var(--ink); background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 7px; padding: 8px 11px; }
+#krPortalCallback:focus { outline: none; border-color: var(--accent); }
+.kr-profiles { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-height: 220px; overflow: auto; }
+.kr-profiles label { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: var(--ink-2);
+  padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px; cursor: pointer; overflow-wrap: anywhere; }
+.kr-profiles input { width: auto; flex: none; margin-top: 2px; accent-color: var(--accent); }
+.kr-local { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.kr-local .hint { flex: 1 1 260px; font-size: 11.5px; }
+.realm-tag.od { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
 .tc-plat { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .qd-log {
   max-height: 260px; overflow: auto; margin: 0; padding: 13px 17px; border-top: 1px solid var(--line-soft);
@@ -1664,6 +1675,7 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
             <span class="hint" style="font-size:12px">方式：</span>
             <label class="realm-opt"><input type="radio" name="krMethod" value="builder" checked> AWS Builder ID（个人）</label>
             <label class="realm-opt"><input type="radio" name="krMethod" value="idc"> IAM Identity Center（组织）</label>
+            <label class="realm-opt"><input type="radio" name="krMethod" value="portal"> 网页登录（Google / GitHub / Microsoft 企业）</label>
           </div>
           <div id="krIdcFields" class="grid2" hidden>
             <label class="fld"><span class="lb">Start URL</span>
@@ -1671,9 +1683,22 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
             <label class="fld"><span class="lb">区域</span>
               <input id="krRegion" placeholder="us-east-1" autocomplete="off" spellcheck="false"></label>
           </div>
-          <div class="hint" style="font-size:12px;margin-top:2px">网关生成验证码与链接，你在浏览器里用 AWS 账号（邮箱 + 密码）登录并确认即可；密码只在 AWS 页面输入，不经过网关。</div>
+          <div id="krDeviceIntro" class="hint" style="font-size:12px;margin-top:2px">网关生成验证码与链接，你在浏览器里用 AWS 账号（邮箱 + 密码）登录并确认即可；密码只在 AWS 页面输入，不经过网关。</div>
+          <div id="krPortalIntro" class="hint" style="font-size:12px;margin-top:2px" hidden>用 Kiro 官网登录页登录 Google / GitHub 账号或公司 Microsoft 账号（企业邮箱会自动识别）。登录完成后浏览器会跳到一个「无法访问 localhost」的页面，这是预期的：把地址栏里的完整地址粘回来即可，网关不需要监听任何端口。密码只在 Google / GitHub / Microsoft 页面输入，不经过网关。</div>
         </div>
         <div id="krLoad" class="state" hidden><span class="dots">正在获取授权链接</span></div>
+        <!-- 网页登录：第 1 步 Kiro 登录页，企业账号再有第 2 步 Microsoft 登录页；两步都是「打开链接 → 粘回回调地址」 -->
+        <div id="krPortalReady" hidden>
+          <div class="state" id="krPortalTitle"></div>
+          <div class="url" id="krPortalUrl"></div>
+          <div class="hint" id="krPortalHint" style="font-size:12px;margin-bottom:6px"></div>
+          <textarea id="krPortalCallback" rows="3" spellcheck="false" autocomplete="off" aria-label="登录完成后的回调地址"
+            placeholder="http://localhost:3128/…（浏览器地址栏里的完整地址）"></textarea>
+        </div>
+        <div id="krPortalSelect" hidden>
+          <div class="state">该账号有多个 Kiro profile，请选择要使用的一个：</div>
+          <div id="krProfileList" class="kr-profiles"></div>
+        </div>
         <div id="krLoginReady" hidden>
           <div class="state">在浏览器打开以下链接，核对验证码后完成登录：</div>
           <div class="url" id="krUrl"></div>
@@ -1685,15 +1710,31 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
       </div>
       <!-- Kiro 凭证导入（JSON / 行格式 / refresh token / API Key） -->
       <div id="addTabKrImport" class="tab-panel" hidden>
-        <div class="hint" style="margin-bottom:6px">粘贴凭证或选择文件，一次可导入多个账号。支持：</div>
-        <ul class="kr-fmt">
-          <li>JSON：Kiro-Go / Kiro Account Manager 导出，或 Kiro IDE 的 <code>kiro-auth-token.json</code>（IdC 账号把同目录的 clientId 文件一起选上，自动配对）</li>
-          <li>行格式：<code>邮箱----密码----refreshToken----clientId----clientSecret</code>（密码列只为兼容导出格式，不使用也不保存）</li>
-          <li>单独一行 refresh token，或 Kiro API Key <code>ksk_xxx</code>（可写 <code>ksk_xxx|eu-central-1</code> 指定区域）</li>
-        </ul>
+        <div class="realm-row">
+          <span class="hint" style="font-size:12px">内容：</span>
+          <label class="realm-opt"><input type="radio" name="krImportMode" value="credentials" checked> 凭证</label>
+          <label class="realm-opt"><input type="radio" name="krImportMode" value="sso_token"> SSO Token</label>
+        </div>
+        <div id="krModeCred">
+          <div class="hint" style="margin-bottom:6px">粘贴凭证或选择文件，一次可导入多个账号。支持：</div>
+          <ul class="kr-fmt">
+            <li>JSON：Kiro-Go / Kiro Account Manager 导出（含 Microsoft 企业 SSO 账号），或 Kiro IDE 的 <code>kiro-auth-token.json</code>（IdC 账号把同目录的 clientId 文件一起选上，自动配对）</li>
+            <li>行格式：<code>邮箱----密码----refreshToken----clientId----clientSecret</code>（密码列只为兼容导出格式，不使用也不保存）</li>
+            <li>单独一行 refresh token，或 Kiro API Key <code>ksk_xxx</code>（可写 <code>ksk_xxx|eu-central-1</code> 指定区域）</li>
+          </ul>
+        </div>
+        <div id="krModeSso" hidden>
+          <div class="hint" style="margin-bottom:6px">每行一个 <code>x-amz-sso_authn</code>（AWS Builder ID 登录态）。取法：浏览器登录 <code>view.awsapps.com/start</code> → F12 → Application → Cookies → 复制 <code>x-amz-sso_authn</code> 的值。网关用它自动完成设备授权，换出 Kiro 账号。一次最多 20 个；这个值是一份活的登录会话，只用于换取凭证，不会保存。</div>
+          <label class="fld"><span class="lb">区域</span>
+            <input id="krSsoRegion" placeholder="us-east-1" autocomplete="off" spellcheck="false"></label>
+        </div>
         <textarea id="krImportText" rows="6" spellcheck="false" autocomplete="off" aria-label="Kiro 凭证"
           placeholder="粘贴 JSON 或每行一个账号"></textarea>
         <input type="file" id="krImportFile" accept=".json,.txt" multiple aria-label="选择 Kiro 凭证文件">
+        <div id="krLocalBox" class="kr-local">
+          <button type="button" id="btnKrImportLocal" class="xs">读取本机 Kiro IDE 登录缓存</button>
+          <span class="hint">读取网关所在机器的 <code>~/.aws/sso/cache</code>。注意：网关刷新 token 会让 Kiro IDE 手里的 refresh token 失效（或反过来），两边会互相登出；建议用单独的账号。</span>
+        </div>
         <div id="krImportDone" class="state ok" hidden style="margin-top:10px"></div>
         <div id="krImportErr" class="state err" hidden style="margin-top:10px"></div>
         <div id="krImportRes" class="kr-res" hidden></div>
@@ -1718,6 +1759,8 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
         <button id="btnKrStartLogin" class="primary">获取验证码</button>
         <button id="btnKrCopyCode" hidden>复制验证码</button>
         <button id="btnKrOpenUrl" class="primary" hidden>在浏览器打开</button>
+        <button id="btnKrPortalSubmit" class="primary" hidden>提交回调地址</button>
+        <button id="btnKrPortalSelect" class="primary" hidden>使用所选 profile</button>
       </span>
       <span id="addFtKrImport" class="ft-grp" hidden>
         <button id="btnKrImport" class="primary">导入</button>

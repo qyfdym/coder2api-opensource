@@ -28,6 +28,8 @@ type Service struct {
 	Client *kiro.Client
 	// AuthDir 账号凭证目录（与其它平台同目录，文件名 kiro-<uid>.json）。
 	AuthDir string
+	// LocalCacheDir 读取本机 Kiro IDE 登录缓存的目录；空 = ~/.aws/sso/cache。仅测试覆盖用。
+	LocalCacheDir string
 
 	// ChatFunc 推理入口覆盖（测试注入假上游用）；nil = Client.ChatStream。
 	ChatFunc func(ctx context.Context, cred kiro.Cred, body []byte) (io.ReadCloser, *kiro.Error)
@@ -56,7 +58,22 @@ func Cred(a *auth.Auth) kiro.Cred {
 		ProfileArn:   m.ProfileArn,
 		MachineID:    m.MachineID,
 		APIKey:       m.APIKey,
+
+		TokenEndpoint: m.TokenEndpoint,
+		IssuerURL:     m.IssuerURL,
+		Scopes:        m.Scopes,
 	}
+}
+
+// OverageEnabled 账号是否打开了超额（额度用完后按量计费）。打开时额度用完不应冷却：上游仍会放行。
+func OverageEnabled(a *auth.Auth) bool {
+	return strings.EqualFold(a.KiroMeta().OverageStatus, "ENABLED")
+}
+
+// ShouldCoolOnExhausted 额度刷新后是否应把账号硬冷却到下次重置：额度用完（total>0 才算「有额度的号用完了」，
+// 查不到额度不算）且没有打开超额。三个刷新入口（调度器 / 面板额度 / 面板积分明细）共用，口径一致。
+func ShouldCoolOnExhausted(a *auth.Auth, remain, total int64) bool {
+	return remain <= 0 && total > 0 && !OverageEnabled(a)
 }
 
 // IsAPIKey 账号是否为 Kiro API Key（不刷新、不过期）。
@@ -175,6 +192,12 @@ func (s *Service) Balance(ctx context.Context, a *auth.Auth) (remain, total int6
 	if total < remain {
 		total = remain
 	}
+	s.recordUsage(a, u)
+	return remain, total, u, nil
+}
+
+// recordUsage 把额度接口顺带返回的资料（套餐 / 邮箱 / 重置时刻 / 超额状态）写回账号并落盘。
+func (s *Service) recordUsage(a *auth.Auth, u kiro.Usage) {
 	changed := false
 	a.UpdateKiro(func(m *auth.KiroMeta) {
 		set := func(dst *string, v string) {
@@ -186,6 +209,7 @@ func (s *Service) Balance(ctx context.Context, a *auth.Auth) (remain, total int6
 		set(&m.PlanTitle, u.PlanTitle)
 		set(&m.Email, u.Email)
 		set(&m.UserID, u.UserID)
+		set(&m.OverageStatus, u.OverageStatus)
 		if u.NextResetAt > 0 && m.NextResetAt != u.NextResetAt {
 			m.NextResetAt, changed = u.NextResetAt, true
 		}
@@ -199,7 +223,6 @@ func (s *Service) Balance(ctx context.Context, a *auth.Auth) (remain, total int6
 	if changed {
 		_ = a.SaveAtomic()
 	}
-	return remain, total, u, nil
 }
 
 // NextReset 额度耗尽时的冷却截止：账号记录的下次重置时刻；未知时 6 小时后再看。
@@ -238,9 +261,14 @@ type ImportResult struct {
 
 // Import 逐条导入（OAuth 凭证先刷新一次确认可用；API Key 先查一次额度确认有效）。
 func (s *Service) Import(ctx context.Context, items []kiro.ImportItem) []ImportResult {
+	return s.importWith(ctx, items, "import", true)
+}
+
+// importWith 导入的通用实现。forceRefresh=false 时 access token 还有效就不刷新（不轮换 refresh token）。
+func (s *Service) importWith(ctx context.Context, items []kiro.ImportItem, source string, forceRefresh bool) []ImportResult {
 	out := make([]ImportResult, 0, len(items))
 	for _, it := range items {
-		a, err := s.createAccount(ctx, it, "import", true)
+		a, err := s.createAccount(ctx, it, source, forceRefresh)
 		if err != nil {
 			out = append(out, ImportResult{Error: err.Error(), Nickname: firstNonEmpty(it.Nickname, it.Email)})
 			continue
@@ -248,6 +276,149 @@ func (s *Service) Import(ctx context.Context, items []kiro.ImportItem) []ImportR
 		out = append(out, ImportResult{OK: true, UID: a.UID, Nickname: a.Nickname, Account: a})
 	}
 	return out
+}
+
+// ImportSSOTokens 逐个用 SSO token（x-amz-sso_authn）换出 Builder ID 凭证并建档。
+// 错误信息里只带序号，不带 token 本身。
+func (s *Service) ImportSSOTokens(ctx context.Context, tokens []string, region string) []ImportResult {
+	out := make([]ImportResult, 0, len(tokens))
+	for i, tok := range tokens {
+		label := fmt.Sprintf("SSO token #%d", i+1)
+		r, kerr := s.Client.ImportFromSSOToken(ctx, tok, region)
+		if kerr != nil {
+			out = append(out, ImportResult{Nickname: label, Error: kerr.Error()})
+			continue
+		}
+		a, err := s.createAccount(ctx, kiro.ImportItem{
+			AccessToken: r.Tokens.AccessToken, RefreshToken: r.Tokens.RefreshToken, ExpiresAt: r.Tokens.ExpiresAt,
+			ClientID: r.ClientID, ClientSecret: r.ClientSecret, AuthMethod: "idc", Provider: "BuilderId",
+			Region: r.Region, StartURL: kiro.BuilderIDStartURL,
+		}, "sso_token", false)
+		if err != nil {
+			out = append(out, ImportResult{Nickname: label, Error: err.Error()})
+			continue
+		}
+		out = append(out, ImportResult{OK: true, UID: a.UID, Nickname: a.Nickname, Account: a})
+	}
+	return out
+}
+
+// LocalCacheDirPath 本机 Kiro IDE 缓存目录（未配置时取 ~/.aws/sso/cache）。
+func (s *Service) LocalCacheDirPath() (string, error) {
+	if d := strings.TrimSpace(s.LocalCacheDir); d != "" {
+		return d, nil
+	}
+	return kiro.DefaultLocalCacheDir()
+}
+
+// ImportLocalCache 导入网关所在机器上的 Kiro IDE 登录缓存。access token 还有效就不刷新，
+// 尽量推迟 refresh token 轮换（轮换会让 IDE 手里的那份失效）。
+func (s *Service) ImportLocalCache(ctx context.Context) ([]ImportResult, []string) {
+	dir, err := s.LocalCacheDirPath()
+	if err != nil {
+		return nil, []string{err.Error()}
+	}
+	items, skipped := kiro.ReadLocalCache(dir)
+	if len(items) == 0 {
+		return nil, skipped
+	}
+	return s.importWith(ctx, items, "local_cache", false), skipped
+}
+
+// PortalProfiles 网页登录（企业 SSO）完成后列出该凭证能用的 profile；多于一个时由用户挑选。
+func (s *Service) PortalProfiles(ctx context.Context, res *kiro.PortalResult) ([]kiro.Profile, *kiro.Error) {
+	if res == nil || res.Kind != kiro.AuthMethodExternalIDP {
+		return nil, nil
+	}
+	return s.Client.ListProfiles(ctx, kiro.Cred{
+		AccessToken: res.Tokens.AccessToken, AuthMethod: kiro.AuthMethodExternalIDP, Provider: kiro.ProviderAzureAD,
+		ClientID: res.ClientID, TokenEndpoint: res.TokenEndpoint, IssuerURL: res.IssuerURL, Scopes: res.Scopes,
+	})
+}
+
+// NewAccountFromPortal 网页登录成功后建档。profileArn 非空时用它（企业 SSO 多 profile 时用户的选择）。
+func (s *Service) NewAccountFromPortal(ctx context.Context, res *kiro.PortalResult, profileArn string) (*auth.Auth, error) {
+	if res == nil {
+		return nil, errors.New("登录结果为空")
+	}
+	it := kiro.ImportItem{
+		AccessToken: res.Tokens.AccessToken, RefreshToken: res.Tokens.RefreshToken, ExpiresAt: res.Tokens.ExpiresAt,
+		ProfileArn: firstNonEmpty(profileArn, res.Tokens.ProfileArn), Region: "us-east-1",
+	}
+	source := "portal_social"
+	if res.Kind == kiro.AuthMethodExternalIDP {
+		it.AuthMethod, it.Provider = kiro.AuthMethodExternalIDP, kiro.ProviderAzureAD
+		it.ClientID, it.TokenEndpoint, it.IssuerURL, it.Scopes = res.ClientID, res.TokenEndpoint, res.IssuerURL, res.Scopes
+		it.Email, it.UserID = res.Email, res.UserID
+		source = "portal_microsoft"
+	} else {
+		it.AuthMethod, it.Provider = "social", "Social"
+	}
+	return s.createAccount(ctx, it, source, false)
+}
+
+// OverageInfo 账号的超额（额度用完后按量计费）状态。
+type OverageInfo struct {
+	Status          string  // ENABLED / DISABLED / 空 = 上游没给
+	Capable         bool    // 订阅是否支持超额
+	Capability      string  // 上游原值（OVERAGE_CAPABLE / NOT_OVERAGE_CAPABLE …）
+	CapUSD          float64 // 超额费用上限（美元）
+	RateUSD         float64 // 单次调用超额单价（美元）
+	CurrentUSD      float64 // 本周期已产生的超额费用（美元）
+	SubscriptionTit string
+}
+
+// overageCapable 订阅是否支持超额。空串 = 上游没给，视为未知并放行；否则必须是明确的
+// 「CAPABLE」且不含任何否定写法（INCAPABLE / NOT_… / UNSUPPORTED / DISABLED）。
+func overageCapable(capability string) bool {
+	c := strings.ToUpper(strings.TrimSpace(capability))
+	if c == "" {
+		return true
+	}
+	for _, neg := range []string{"INCAPABLE", "NOT", "UNSUPPORTED", "UNAVAILABLE", "DISABLED"} {
+		if strings.Contains(c, neg) {
+			return false
+		}
+	}
+	return strings.Contains(c, "CAPABLE")
+}
+
+func overageInfo(u kiro.Usage) OverageInfo {
+	capb := strings.ToUpper(u.OverageCapability)
+	return OverageInfo{
+		Status: u.OverageStatus, Capability: u.OverageCapability,
+		// 字段缺失视为未知，放行让上游自己决定（不支持会拒绝设置）；有值就只认明确的肯定值。
+		// 真机里学生号返回的是 OVERAGE_INCAPABLE——「INCAPABLE」里没有 NOT，只检查否定词会判错。
+		Capable: overageCapable(capb),
+		CapUSD:  u.OverageCap, RateUSD: u.OverageRate, CurrentUSD: u.CurrentOverages, SubscriptionTit: u.PlanTitle,
+	}
+}
+
+// Overage 读取账号当前的超额开关状态（顺带刷新账号资料）。
+func (s *Service) Overage(ctx context.Context, a *auth.Auth) (OverageInfo, *kiro.Error) {
+	if kerr := s.EnsureFresh(ctx, a, opSkew); kerr != nil {
+		return OverageInfo{}, kerr
+	}
+	u, kerr := s.Client.UsageLimits(ctx, Cred(a))
+	if kerr != nil {
+		return OverageInfo{}, kerr
+	}
+	s.recordUsage(a, u)
+	return overageInfo(u), nil
+}
+
+// SetOverage 打开 / 关闭超额开关，并把新状态写回账号。
+func (s *Service) SetOverage(ctx context.Context, a *auth.Auth, enabled bool) (OverageInfo, *kiro.Error) {
+	if kerr := s.EnsureFresh(ctx, a, opSkew); kerr != nil {
+		return OverageInfo{}, kerr
+	}
+	s.ensureProfile(ctx, a)
+	u, kerr := s.Client.SetOverage(ctx, Cred(a), enabled)
+	if kerr != nil {
+		return OverageInfo{}, kerr
+	}
+	s.recordUsage(a, u)
+	return overageInfo(u), nil
 }
 
 // createAccount 由凭证建档：OAuth 凭证（forceRefresh 或 access token 将过期时）先刷新，
@@ -261,6 +432,14 @@ func (s *Service) createAccount(ctx context.Context, it kiro.ImportItem, source 
 		AuthMethod: it.AuthMethod, Provider: it.Provider, Region: it.Region,
 		ClientID: it.ClientID, ClientSecret: it.ClientSecret, StartURL: it.StartURL,
 		ProfileArn: it.ProfileArn, APIKey: it.APIKey,
+		TokenEndpoint: it.TokenEndpoint, IssuerURL: it.IssuerURL, Scopes: it.Scopes,
+	}
+	if cred.IsExternalIDP() {
+		// 企业 SSO 是公共客户端：不存 clientSecret；端点 / scope 入库前再校验一遍。
+		cred.ClientSecret = ""
+		if err := kiro.ValidateExternalIdpConfig(cred.ClientID, cred.TokenEndpoint, cred.IssuerURL, cred.Scopes); err != nil {
+			return nil, fmt.Errorf("企业 SSO 配置无效：%v", err)
+		}
 	}
 	if cred.IsAPIKey() {
 		cred.AccessToken, cred.RefreshToken, cred.ExpiresAt = it.APIKey, "", 0
@@ -278,6 +457,22 @@ func (s *Service) createAccount(ctx context.Context, it kiro.ImportItem, source 
 			cred.AccessToken, cred.RefreshToken, cred.ExpiresAt = ts.AccessToken, ts.RefreshToken, ts.ExpiresAt
 			if ts.ProfileArn != "" && cred.ProfileArn == "" {
 				cred.ProfileArn = ts.ProfileArn
+			}
+		}
+		if cred.IsExternalIDP() && cred.ProfileArn != "" {
+			// 企业 SSO 的 profileArn 只接受该凭证自己能列出来的，不让外部输入把任意数据面 ARN 钉到一个可用凭证上。
+			pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			profiles, kerr := s.Client.ListProfiles(pctx, cred)
+			cancel()
+			if kerr != nil {
+				return nil, fmt.Errorf("无法核对 profileArn：%v", kerr)
+			}
+			found := false
+			for _, p := range profiles {
+				found = found || p.ARN == cred.ProfileArn
+			}
+			if !found {
+				return nil, errors.New("profileArn 不在该账号可用的 profile 列表里")
 			}
 		}
 		if cred.ProfileArn == "" {
@@ -300,7 +495,10 @@ func (s *Service) createAccount(ctx context.Context, it kiro.ImportItem, source 
 		log.Printf("WARN: [kiro] new account: usage check failed (account saved anyway): %v", uerr)
 	}
 	email := firstNonEmpty(usage.Email, it.Email)
-	identity := firstNonEmpty(usage.UserID, email)
+	if email == "" && cred.IsExternalIDP() {
+		email, _ = kiro.ExternalIdpIdentity(cred.AccessToken)
+	}
+	identity := firstNonEmpty(usage.UserID, it.UserID, email)
 	switch {
 	case identity != "":
 	case cred.IsAPIKey():
@@ -317,8 +515,9 @@ func (s *Service) createAccount(ctx context.Context, it kiro.ImportItem, source 
 		AuthMethod: strings.ToLower(cred.AuthMethod), Provider: cred.Provider, Region: cred.Region,
 		ClientID: cred.ClientID, ClientSecret: cred.ClientSecret, StartURL: cred.StartURL,
 		ProfileArn: cred.ProfileArn, MachineID: cred.MachineID, APIKey: cred.APIKey,
-		Email: email, UserID: usage.UserID, Plan: usage.Plan, PlanTitle: usage.PlanTitle,
-		NextResetAt: usage.NextResetAt, Source: source, AddedAt: time.Now().Unix(),
+		TokenEndpoint: cred.TokenEndpoint, IssuerURL: cred.IssuerURL, Scopes: cred.Scopes,
+		Email: email, UserID: firstNonEmpty(usage.UserID, it.UserID), Plan: usage.Plan, PlanTitle: usage.PlanTitle,
+		NextResetAt: usage.NextResetAt, OverageStatus: usage.OverageStatus, Source: source, AddedAt: time.Now().Unix(),
 	}
 	if meta.AuthMethod == "" {
 		meta.AuthMethod = "social"

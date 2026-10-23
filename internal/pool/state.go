@@ -631,6 +631,7 @@ func (p *Pool) statusOf(uid string, e *entry) Status {
 		km := e.a.KiroMeta()
 		st.Plan = km.Plan
 		st.AuthKind = km.Provider
+		st.Overage = km.OverageStatus
 	}
 	if st.Cooling || st.Disabled {
 		st.Reason = e.reason

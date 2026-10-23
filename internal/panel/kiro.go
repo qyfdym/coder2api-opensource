@@ -135,7 +135,13 @@ func (p *Panel) kiroLoginCancel(w http.ResponseWriter, r *http.Request) {
 	p.krLoginMu.Lock()
 	_, existed := p.krLogins[req.State]
 	delete(p.krLogins, req.State)
+	portal := p.krPortals[req.State]
+	delete(p.krPortals, req.State)
 	p.krLoginMu.Unlock()
+	if portal != nil {
+		existed = true
+		portal.wipe()
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "cancelled": existed})
 }
 
@@ -163,11 +169,36 @@ func (p *Panel) kiroImport(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		Text string `json:"text"`
+		// Mode "" / "credentials" = 凭证文本；"sso_token" = 每行一个 x-amz-sso_authn。
+		Mode   string `json:"mode"`
+		Region string `json:"region"`
 	}
 	if err := json.Unmarshal(raw, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad json: "+err.Error())
 		return
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+
+	if strings.EqualFold(strings.TrimSpace(req.Mode), "sso_token") {
+		var tokens []string
+		for _, line := range strings.Split(req.Text, "\n") {
+			if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
+				tokens = append(tokens, line)
+			}
+		}
+		if len(tokens) == 0 {
+			writeErr(w, http.StatusBadRequest, "请粘贴 SSO token（x-amz-sso_authn 的值），每行一个")
+			return
+		}
+		if len(tokens) > kiroSSOTokenMax {
+			writeErr(w, http.StatusBadRequest, "SSO token 一次最多导入 "+strconv.Itoa(kiroSSOTokenMax)+" 个")
+			return
+		}
+		p.kiroFinishImport(ctx, w, p.cfg.Kiro.ImportSSOTokens(ctx, tokens, req.Region), nil, "sso_token")
+		return
+	}
+
 	items, skipped := kiro.ParseImport(req.Text)
 	if len(items) == 0 {
 		msg := "没有可导入的账号"
@@ -181,9 +212,14 @@ func (p *Panel) kiroImport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "一次最多导入 200 个账号")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
-	defer cancel()
-	results := p.cfg.Kiro.Import(ctx, items)
+	p.kiroFinishImport(ctx, w, p.cfg.Kiro.Import(ctx, items), skipped, "credentials")
+}
+
+// kiroSSOTokenMax 一次最多导入的 SSO token 数（每个要走 7 步上游调用）。
+const kiroSSOTokenMax = 20
+
+// kiroFinishImport 导入结果统一收尾：成功的入池并刷新余额，失败的汇总原因。
+func (p *Panel) kiroFinishImport(ctx context.Context, w http.ResponseWriter, results []kiroacct.ImportResult, skipped []string, kind string) {
 	var accounts []map[string]any
 	var failed []string
 	for _, res := range results {
@@ -198,11 +234,31 @@ func (p *Panel) kiroImport(w http.ResponseWriter, r *http.Request) {
 		p.kiroAddToPool(ctx, res.Account)
 		accounts = append(accounts, kiroAccountBrief(res.Account))
 	}
-	log.Printf("panel: kiro import: %d ok, %d failed, %d skipped", len(accounts), len(failed), len(skipped))
+	log.Printf("panel: kiro import(%s): %d ok, %d failed, %d skipped", kind, len(accounts), len(failed), len(skipped))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": len(accounts) > 0, "imported": len(accounts), "accounts": accounts,
 		"failed": failed, "skipped": skipped,
 	})
+}
+
+// kiroImportLocal POST {}：导入网关所在机器上的 Kiro IDE 登录缓存（~/.aws/sso/cache）。
+// 只读固定的两类文件；网关在别的机器 / 容器里时读不到，会如实说明。
+func (p *Panel) kiroImportLocal(w http.ResponseWriter, r *http.Request) {
+	if !p.kiroEnabled(w) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	results, skipped := p.cfg.Kiro.ImportLocalCache(ctx)
+	if len(results) == 0 {
+		msg := "没有可导入的本机 Kiro IDE 登录缓存"
+		if len(skipped) > 0 {
+			msg += "：" + strings.Join(skipped, "；")
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": msg, "skipped": skipped})
+		return
+	}
+	p.kiroFinishImport(ctx, w, results, skipped, "local_cache")
 }
 
 // kiroAddToPool 新账号入池（同 uid 已存在时替换凭证、保留池状态）并刷新一次余额。
@@ -243,7 +299,7 @@ func (p *Panel) kiroRefreshCredits(ctx context.Context, a *auth.Auth) (int64, in
 func (p *Panel) applyKiroCredits(a *auth.Auth, remain, total int64) {
 	p.cfg.Pool.ReenableIfCredits(a.UID, remain, total)
 	p.cfg.Pool.SetCreditsSnapshot(a.UID, pool.CreditsSnapshot{Remain: remain, Total: total})
-	if remain <= 0 && total > 0 {
+	if kiroacct.ShouldCoolOnExhausted(a, remain, total) {
 		d := time.Until(kiroacct.NextReset(a, time.Now()))
 		if d < time.Minute {
 			d = time.Hour

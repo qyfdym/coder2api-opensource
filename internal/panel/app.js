@@ -15,8 +15,8 @@ let accPlat = (() => { try { return localStorage.getItem(LS_ACC_PLAT) || ''; } c
 let tcPlat = 'wb';
 /* Qoder 添加账号（OAuth 设备授权）的会话 state 与轮询计时器。 */
 let qdLoginState = '', qdLoginTimer = null;
-/* Kiro 添加账号（AWS 设备授权）的会话 state 与轮询计时器。 */
-let krLoginState = '', krLoginTimer = null;
+/* Kiro 添加账号（AWS 设备授权）的会话 state 与轮询计时器；krPortalState = 网页登录会话。 */
+let krLoginState = '', krLoginTimer = null, krPortalState = '';
 /* 视图级筛选状态（模块级声明放在文件顶部，避免顶层 go() 早于声明执行时踩 TDZ）。 */
 let mdFilter = { q: '', realm: '', cap: '', effort: '', promo: '', sort: 'default' };
 let mdAll = [], mdProbes = {}, mdProbeOf = () => undefined;
@@ -413,14 +413,17 @@ const PLAT_NAMES = { workbuddy: 'WorkBuddy', qoder: 'Qoder', kiro: 'Kiro' };
 /* Kiro 身份来源 → 展示名（auth_kind 来自账号文件的 provider）。 */
 function kiroAuthLabel(k) {
   return { BuilderId: 'Builder ID', Enterprise: 'Identity Center', Google: 'Google', Github: 'GitHub',
-    Social: '社交登录', APIKey: 'API Key' }[k] || (k ? String(k) : 'Kiro');
+    Social: '社交登录', AzureAD: 'Microsoft 企业', APIKey: 'API Key' }[k] || (k ? String(k) : 'Kiro');
 }
 /* 账号池「类型」列：平台徽标（WorkBuddy 蓝 / Qoder 绿 / Kiro 紫）+ 版本（国内 / 国际，企业版另注；
    Kiro 是身份来源 · 订阅档位）。 */
 function accTypeHTML(s) {
   if (isKiroAcct(s)) {
     const sub = kiroAuthLabel(s.auth_kind) + (s.plan ? ' · ' + s.plan : '');
-    return '<span class="realm-tag kr">Kiro</span><div class="sub">' + esc(sub) + '</div>';
+    // 超额已开：额度用完后仍会放行并按量计费——要一眼看得见，免得忘了关。
+    const od = s.overage === 'ENABLED'
+      ? ' <span class="realm-tag od" title="超额已开启：额度用完后继续放行，超出部分按量计费">超额</span>' : '';
+    return '<span class="realm-tag kr">Kiro</span>' + od + '<div class="sub">' + esc(sub) + '</div>';
   }
   const qd = isQoderAcct(s);
   const intl = s && (s.realm === 'global' || s.realm === 'qoder-intl');
@@ -539,6 +542,8 @@ function renderAccounts(all) {
         (s.enterprise || kr ? '' :
           '<button class="xs ghost" data-a="checkin" data-u="' + esc(s.uid) + '"' + (s.checkin_done ? ' title="今日已签到；点击可重新签到并刷新余额"' : '') + '>' + (s.checkin_done ? '已签' : '签到') + '</button>') +
         '<button class="xs ghost" data-a="balance" data-u="' + esc(s.uid) + '"' + (s.enterprise ? ' title="刷新企业版已分配额度（上游 get-enterprise-user-usage）"' : kr ? ' title="刷新 Kiro Credits（基础额度 + 试用 + 附加额度）"' : '') + '>' + (s.enterprise || kr ? '额度' : '余额') + '</button>' +
+        // Kiro 超额开关：额度用完后是否继续放行并按量计费（会产生费用，点开后有确认）。
+        (kr ? '<button class="xs ghost" data-a="overage" data-u="' + esc(s.uid) + '" title="查看 / 开关超额（额度用完后按量计费）">超额</button>' : '') +
         // 「任务」是 WorkBuddy 成长任务体系；Qoder 的活动与福利在任务中心的 Qoder tab，Kiro 没有任务体系。
         (s.enterprise || qd || kr ? '' :
           '<button class="xs ghost" data-a="tasks" data-u="' + esc(s.uid) + '">任务</button>') +
@@ -678,6 +683,8 @@ $('accBody').addEventListener('click', async ev => {
       toast('已恢复选号', 'ok');
     } else if (a === 'tasks') {
       openTasks(u);
+    } else if (a === 'overage') {
+      await kiroOverageToggle(u);
     } else if (a === 'remove') {
       const r = await api('accounts/' + encodeURIComponent(u) + '/remove', { method: 'POST' });
       toast(r.file_error ? '已移除（凭证文件删除失败：' + r.file_error + '）' : '已移除', 'ok');
@@ -3773,38 +3780,58 @@ $('btnQdPatSave').onclick = async () => {
    OIDC 客户端凭证与 deviceCode 只在服务端内存，浏览器只拿会话 state、验证码与链接；
    用户在 AWS 页面用邮箱 + 密码登录，密码不经过网关。关闭弹窗即 cancel。 */
 function krMethod() { return (document.querySelector('input[name="krMethod"]:checked') || {}).value || 'builder'; }
-function krSyncMethod() { $('krIdcFields').hidden = krMethod() !== 'idc'; }
+function krSyncMethod() {
+  const m = krMethod();
+  $('krIdcFields').hidden = m !== 'idc';
+  $('krDeviceIntro').hidden = m === 'portal';
+  $('krPortalIntro').hidden = m !== 'portal';
+  // 起始按钮的文案跟着方式走：设备授权要验证码，网页登录要登录链接。
+  $('btnKrStartLogin').textContent = m === 'portal' ? '获取登录链接' : '获取验证码';
+}
 document.querySelectorAll('input[name="krMethod"]').forEach(r => r.addEventListener('change', krSyncMethod));
 /* 轮询间隔（秒）：服务端给的 interval（slow_down 时会加大），钳在 2..30。 */
 function krClampInterval(n) { n = Number(n) || 5; return Math.min(30, Math.max(2, n)); }
+/* 网页登录子界面全部收起（重置 / 取消 / 失败时共用）。 */
+function krPortalHideAll() {
+  $('krPortalReady').hidden = true; $('krPortalSelect').hidden = true;
+  $('krPortalCallback').value = ''; $('krPortalUrl').textContent = '';
+  $('krProfileList').innerHTML = '';
+  $('btnKrPortalSubmit').hidden = true; $('btnKrPortalSelect').hidden = true;
+  $('btnKrPortalSubmit').disabled = false; $('btnKrPortalSelect').disabled = false;
+}
 function krLoginReset() {
   if (krLoginTimer) { clearTimeout(krLoginTimer); krLoginTimer = null; }
-  krLoginState = '';
+  krLoginState = ''; krPortalState = '';
   $('krPick').hidden = false;
   $('krLoad').hidden = true; $('krLoginReady').hidden = true;
   $('krDone').hidden = true; $('krErr').hidden = true;
   $('krUrl').textContent = ''; $('krUserCode').textContent = '';
   $('btnKrStartLogin').hidden = false; $('btnKrStartLogin').disabled = false;
   $('btnKrOpenUrl').hidden = true; $('btnKrCopyCode').hidden = true;
+  krPortalHideAll();
   krSyncMethod();
 }
+/* 取消 = 丢弃服务端会话（设备授权会话与网页登录会话共用 cancel 接口；网页登录会话里有 PKCE
+   verifier 与待选 profile 的临时凭证，不能挂着等过期）。 */
 function krLoginCancel() {
-  const st = krLoginState;
+  const st = krLoginState || krPortalState;
   if (krLoginTimer) { clearTimeout(krLoginTimer); krLoginTimer = null; }
-  krLoginState = '';
+  krLoginState = ''; krPortalState = '';
   if (st) api('kiro/login/cancel', { method: 'POST', body: JSON.stringify({ state: st }) }).catch(() => {});
 }
 /* 终止态：给出明确原因并允许重来，不静默转圈。 */
 function krLoginFail(msg) {
   if (krLoginTimer) { clearTimeout(krLoginTimer); krLoginTimer = null; }
-  krLoginState = '';
+  krLoginState = ''; krPortalState = '';
   $('krLoad').hidden = true; $('krLoginReady').hidden = true;
   $('krErr').hidden = false; $('krErr').textContent = msg;
   $('krPick').hidden = false;
   $('btnKrStartLogin').hidden = false; $('btnKrStartLogin').disabled = false;
   $('btnKrOpenUrl').hidden = true; $('btnKrCopyCode').hidden = true;
+  krPortalHideAll();
 }
 $('btnKrStartLogin').onclick = async () => {
+  if (krMethod() === 'portal') return krPortalStart();
   const body = {};
   $('krErr').hidden = true; $('krDone').hidden = true;
   if (krMethod() === 'idc') {
@@ -3845,7 +3872,8 @@ $('btnKrStartLogin').onclick = async () => {
   }
 };
 $('btnKrOpenUrl').onclick = () => {
-  const u = qdSafeUrl($('krUrl').textContent);
+  // 网页登录时链接在 krPortalUrl，设备授权时在 krUrl。
+  const u = qdSafeUrl(($('krPortalReady').hidden ? $('krUrl') : $('krPortalUrl')).textContent);
   if (u) window.open(u, '_blank', 'noopener');
 };
 $('btnKrCopyCode').onclick = () => navigator.clipboard.writeText($('krUserCode').textContent)
@@ -3886,14 +3914,169 @@ function krLoginPollStart(intervalSec) {
   krLoginTimer = setTimeout(tick, wait * 1000);
 }
 
+/* ── Kiro 超额开关 ─────────────────────────────────────────────────────
+   超额 = 额度用完后上游继续放行、超出部分按量计费。打开会产生真实费用，所以先读出当前状态
+   （费用上限 / 单价 / 本周期已产生），在确认框里写清楚再提交；请求体显式带 enabled。 */
+const fmtUSD = v => '$' + Number(v || 0).toFixed(2);
+async function kiroOverageToggle(uid) {
+  const path = 'kiro/accounts/' + encodeURIComponent(uid) + '/overage';
+  const cur = await api(path);
+  if (!cur.capable) {
+    toast('当前订阅不支持超额' + (cur.subscription ? '（' + cur.subscription + '）' : ''), 'err');
+    return;
+  }
+  const spent = '本周期已产生 ' + fmtUSD(cur.current_usd) + '，费用上限 ' + fmtUSD(cur.cap_usd);
+  if (cur.enabled) {
+    if (!confirm('超额当前已开启（' + spent + '）。\n\n关闭后额度用完就不再放行，账号会冷却到下次额度重置。\n\n确认关闭？')) return;
+    await api(path, { method: 'POST', body: JSON.stringify({ enabled: false }) });
+    toast('已关闭超额', 'ok');
+    return;
+  }
+  const rate = cur.rate_usd > 0 ? '，单价约 ' + fmtUSD(cur.rate_usd) + ' / 次' : '';
+  if (!confirm('开启超额后，额度用完仍会继续放行，超出部分按量计费' + rate + '（' + spent + '）。\n\n这会产生真实费用。确认开启？')) return;
+  await api(path, { method: 'POST', body: JSON.stringify({ enabled: true }) });
+  toast('已开启超额（额度用完后按量计费）', 'ok');
+}
+
+/* ── 添加 Kiro 账号：网页登录（Google / GitHub / Microsoft 企业）──────────
+   两步都是「打开链接登录 → 把跳到 localhost:3128 的完整地址粘回来」：第 1 步是 Kiro 登录页，
+   社交账号到此结束；企业账号再有第 2 步 Microsoft 登录页，多个 profile 时最后挑一个。
+   PKCE verifier / state / 待选 profile 的临时凭证全在服务端内存，这里只有会话 state 与链接。 */
+const KR_PORTAL_STEPS = {
+  kiro: ['第 1 步：在浏览器打开 Kiro 登录页并登录', '选择 Google / GitHub，或输入公司邮箱（Microsoft 企业账号）。登录完成后浏览器会显示「无法访问 localhost」，这是预期的——复制地址栏里的完整地址粘到下面。'],
+  microsoft: ['第 2 步：在浏览器打开 Microsoft 登录页并登录', '用公司 Microsoft 账号登录。完成后浏览器同样会显示「无法访问 localhost」——复制地址栏里的完整地址粘到下面。'],
+};
+function krPortalShowStep(stage, url) {
+  const s = KR_PORTAL_STEPS[stage] || KR_PORTAL_STEPS.kiro;
+  $('krPortalTitle').textContent = s[0];
+  $('krPortalHint').textContent = s[1];
+  $('krPortalUrl').textContent = url;
+  $('krPortalCallback').value = '';
+  $('krPick').hidden = true; $('krLoad').hidden = true; $('krLoginReady').hidden = true;
+  $('krPortalSelect').hidden = true; $('btnKrPortalSelect').hidden = true;
+  $('krPortalReady').hidden = false;
+  $('btnKrStartLogin').hidden = true;
+  $('btnKrOpenUrl').hidden = false; $('btnKrCopyCode').hidden = true;
+  $('btnKrPortalSubmit').hidden = false; $('btnKrPortalSubmit').disabled = false;
+  setTimeout(() => $('krPortalCallback').focus(), 60);
+}
+async function krPortalStart() {
+  $('krErr').hidden = true; $('krDone').hidden = true;
+  krLoginCancel();
+  $('btnKrStartLogin').disabled = true;
+  $('krLoad').hidden = false;
+  try {
+    const d = await api('kiro/login/portal/start', { method: 'POST', body: '{}' });
+    const url = qdSafeUrl(d.url);
+    if (!url) throw new Error('服务端未返回有效的登录链接');
+    krPortalState = d.state || '';
+    krPortalShowStep(d.stage || 'kiro', url);
+  } catch (e) {
+    krLoginFail('获取登录链接失败：' + (e.message || e));
+  }
+}
+function krPortalSuccess(acc, warning) {
+  krPortalState = '';
+  krPortalHideAll();
+  $('krDone').hidden = false;
+  $('krDone').textContent = '已添加 ' + (acc.nickname || qdShortUid(acc.uid) || '账号') +
+    '（Kiro ' + kiroAuthLabel(acc.provider) + (acc.plan ? ' · ' + acc.plan : '') + '），账号已载入池中' + (warning ? '。' + warning : '');
+  $('btnKrOpenUrl').hidden = true;
+  setTimeout(() => { closeAdd(); loadOverview(true); }, warning ? 3200 : 1600);
+}
+function krPortalShowProfiles(profiles, message) {
+  const box = $('krProfileList');
+  box.innerHTML = '';
+  profiles.forEach((p, i) => {
+    const lab = document.createElement('label');
+    const r = document.createElement('input');
+    r.type = 'radio'; r.name = 'krProfile'; r.value = p.arn; r.checked = i === 0;
+    lab.appendChild(r);
+    lab.appendChild(document.createTextNode(' ' + (p.name ? p.name + ' · ' : '') + (p.region || '') + ' · ' + p.arn));
+    box.appendChild(lab);
+  });
+  if (message) $('krPortalSelect').querySelector('.state').textContent = message;
+  $('krPortalReady').hidden = true; $('btnKrPortalSubmit').hidden = true; $('btnKrOpenUrl').hidden = true;
+  $('krPortalSelect').hidden = false; $('btnKrPortalSelect').hidden = false; $('btnKrPortalSelect').disabled = false;
+}
+$('btnKrPortalSubmit').onclick = async () => {
+  const cb = $('krPortalCallback').value.trim();
+  const err = $('krErr');
+  err.hidden = true;
+  if (!krPortalState) { krLoginFail('登录会话已失效，请重新获取登录链接'); return; }
+  if (!cb) { err.hidden = false; err.textContent = '请先粘贴浏览器地址栏里的完整回调地址'; return; }
+  const state = krPortalState, b = $('btnKrPortalSubmit');
+  b.disabled = true;
+  try {
+    const d = await api('kiro/login/portal/complete', { method: 'POST', body: JSON.stringify({ state, callback_url: cb }) });
+    if (state !== krPortalState) return;                       // 期间已关闭 / 重新发起
+    if (d.status === 'ok') { krPortalSuccess(d.account || {}, d.warning); return; }
+    if (d.status === 'next') { krPortalShowStep(d.stage || 'microsoft', qdSafeUrl(d.url) || ''); return; }
+    if (d.status === 'select_profile') { krPortalShowProfiles(d.profiles || [], d.message); return; }
+    if (d.retry) { err.hidden = false; err.textContent = d.message || '回调地址无效，请检查后重新粘贴'; return; }
+    krLoginFail((d.message || '登录失败') + '（请重新获取登录链接）');
+  } catch (e) {
+    err.hidden = false; err.textContent = '提交失败：' + (e.message || e);
+  } finally { b.disabled = false; }
+};
+$('btnKrPortalSelect').onclick = async () => {
+  const sel = document.querySelector('input[name="krProfile"]:checked');
+  if (!sel || !krPortalState) return;
+  const state = krPortalState, b = $('btnKrPortalSelect');
+  b.disabled = true; $('krErr').hidden = true;
+  try {
+    const d = await api('kiro/login/portal/select', { method: 'POST', body: JSON.stringify({ state, profile_arn: sel.value }) });
+    if (state !== krPortalState) return;
+    if (d.status === 'ok') { krPortalSuccess(d.account || {}, d.warning); return; }
+    krLoginFail((d.message || '保存账号失败') + '（请重新获取登录链接）');
+  } catch (e) {
+    $('krErr').hidden = false; $('krErr').textContent = '提交失败：' + (e.message || e);
+    b.disabled = false;
+  }
+};
+
 /* ── 添加 Kiro 账号：凭证导入 ─────────────────────────────────────────
    凭证只经面板提交给服务端落盘，不写进浏览器存储；导入全部成功后清空输入框。 */
+function krImportMode() { return (document.querySelector('input[name="krImportMode"]:checked') || {}).value || 'credentials'; }
+function krSyncImportMode() {
+  const sso = krImportMode() === 'sso_token';
+  $('krModeCred').hidden = sso; $('krModeSso').hidden = !sso;
+  $('krLocalBox').hidden = sso;                        // 本机缓存按钮只属于「凭证」模式
+  $('krImportFile').hidden = sso;                      // SSO token 一行一个，直接粘贴
+  $('krImportText').placeholder = sso ? '每行一个 x-amz-sso_authn 的值' : '粘贴 JSON 或每行一个账号';
+}
+document.querySelectorAll('input[name="krImportMode"]').forEach(r => r.addEventListener('change', krSyncImportMode));
+/* 导入结果统一展示：成功 / 失败 / 跳过；全部成功时清空输入框，不在 DOM 里留存凭证。 */
+function krShowImportResult(d) {
+  const err = $('krImportErr'), done = $('krImportDone'), res = $('krImportRes');
+  const accs = d.accounts || [], failed = d.failed || [], skipped = d.skipped || [];
+  if (accs.length) {
+    done.hidden = false;
+    done.textContent = '已导入 ' + accs.length + ' 个 Kiro 账号：' +
+      accs.slice(0, 5).map(a => a.nickname || qdShortUid(a.uid)).join('、') + (accs.length > 5 ? ' 等' : '') + '，账号已载入池中';
+    loadOverview(true);
+  } else {
+    err.hidden = false; err.textContent = '没有导入成功的账号';
+  }
+  const lines = failed.map(x => '失败 · ' + x).concat(skipped.map(x => '跳过 · ' + x));
+  if (lines.length) {
+    res.hidden = false;
+    res.innerHTML = lines.map(l => '<div>' + esc(l) + '</div>').join('');
+  } else {
+    $('krImportText').value = '';
+  }
+}
 function krImportReset() {
   $('krImportText').value = '';
   $('krImportFile').value = '';
+  $('krSsoRegion').value = '';
+  const cred = document.querySelector('input[name="krImportMode"][value="credentials"]');
+  if (cred) cred.checked = true;
+  krSyncImportMode();
   $('krImportDone').hidden = true; $('krImportErr').hidden = true;
   $('krImportRes').hidden = true; $('krImportRes').innerHTML = '';
   $('btnKrImport').disabled = false; $('btnKrImport').textContent = '导入';
+  $('btnKrImportLocal').disabled = false;
 }
 /* krMergeImportTexts 多个文件 / 已粘贴内容合并成一次导入的文本：全是 JSON → 包成一个数组
    （Kiro IDE 的 token 文件与 clientId 文件放进同一个数组才能配对）；全是行格式 → 按行拼接；
@@ -3927,30 +4110,29 @@ $('btnKrImport').onclick = async () => {
   const text = $('krImportText').value.trim();
   const err = $('krImportErr'), done = $('krImportDone'), res = $('krImportRes');
   done.hidden = true; err.hidden = true; res.hidden = true; res.innerHTML = '';
-  if (!text) { err.hidden = false; err.textContent = '请先粘贴凭证或选择文件'; return; }
+  const sso = krImportMode() === 'sso_token';
+  if (!text) { err.hidden = false; err.textContent = sso ? '请先粘贴 SSO token（每行一个）' : '请先粘贴凭证或选择文件'; return; }
   const b = $('btnKrImport');
-  b.disabled = true; b.textContent = '导入中…';
+  b.disabled = true; b.textContent = sso ? '正在换取凭证…' : '导入中…';
   try {
-    const d = await api('kiro/import', { method: 'POST', body: JSON.stringify({ text }) });
-    const accs = d.accounts || [], failed = d.failed || [], skipped = d.skipped || [];
-    if (accs.length) {
-      done.hidden = false;
-      done.textContent = '已导入 ' + accs.length + ' 个 Kiro 账号：' +
-        accs.slice(0, 5).map(a => a.nickname || qdShortUid(a.uid)).join('、') + (accs.length > 5 ? ' 等' : '') + '，账号已载入池中';
-      loadOverview(true);
-    } else {
-      err.hidden = false; err.textContent = '没有导入成功的账号';
-    }
-    const lines = failed.map(x => '失败 · ' + x).concat(skipped.map(x => '跳过 · ' + x));
-    if (lines.length) {
-      res.hidden = false;
-      res.innerHTML = lines.map(l => '<div>' + esc(l) + '</div>').join('');
-    } else {
-      $('krImportText').value = '';   // 全部成功：不在 DOM 里留存凭证
-    }
+    const body = sso ? { mode: 'sso_token', text, region: $('krSsoRegion').value.trim().toLowerCase() } : { text };
+    krShowImportResult(await api('kiro/import', { method: 'POST', body: JSON.stringify(body) }));
   } catch (e) {
     err.hidden = false; err.textContent = '导入失败：' + (e.message || e);
   } finally { b.disabled = false; b.textContent = '导入'; }
+};
+/* 读取网关所在机器的 Kiro IDE 登录缓存。会让 IDE 与网关抢同一份 refresh token，所以先确认。 */
+$('btnKrImportLocal').onclick = async () => {
+  const err = $('krImportErr'), done = $('krImportDone'), res = $('krImportRes');
+  done.hidden = true; err.hidden = true; res.hidden = true; res.innerHTML = '';
+  if (!confirm('将读取网关所在机器上的 Kiro IDE 登录缓存并导入。\n\n注意：网关之后刷新 token 会让 IDE 手里的 refresh token 失效（或反过来），两边可能互相登出。建议用单独的账号。\n\n继续导入？')) return;
+  const b = $('btnKrImportLocal');
+  b.disabled = true;
+  try {
+    krShowImportResult(await api('kiro/import/local', { method: 'POST', body: '{}' }));
+  } catch (e) {
+    err.hidden = false; err.textContent = '导入失败：' + (e.message || e);
+  } finally { b.disabled = false; }
 };
 
 /* ── 任务中心：平台 tab（WorkBuddy / Qoder）────────────────────────────

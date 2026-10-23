@@ -56,6 +56,13 @@ func (o kiroOps) Balance(a *auth.Auth) (int64, int64, time.Time, error) {
 	return remain, total, kiroacct.NextReset(a, time.Now()), nil
 }
 
+var _ scheduler.KiroExhaustPolicy = kiroOps{}
+
+// ShouldCoolOnExhausted 额度用完是否冷却：已打开超额的号不冷却（上游仍放行，超出部分计费）。
+func (o kiroOps) ShouldCoolOnExhausted(a *auth.Auth, remain, total int64) bool {
+	return kiroacct.ShouldCoolOnExhausted(a, remain, total)
+}
+
 // schedulerKiroOps nil 服务 → nil 接口（调度器据此整体跳过 Kiro 分支）。
 func schedulerKiroOps(svc *kiroacct.Service) scheduler.KiroOps {
 	if svc == nil {

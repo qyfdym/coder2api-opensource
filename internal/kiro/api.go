@@ -125,6 +125,13 @@ type Usage struct {
 	NextResetAt int64 // 下次重置（Unix 秒）
 	Email       string
 	UserID      string
+	// 超额（额度用完后按量计费）：状态 ENABLED / DISABLED（空 = 上游没给）、订阅是否支持、
+	// 美元上限 / 单价 / 本周期已产生的超额费用。
+	OverageStatus     string
+	OverageCapability string
+	OverageCap        float64
+	OverageRate       float64
+	CurrentOverages   float64
 }
 
 // Bonus 一笔附加额度。
@@ -168,6 +175,9 @@ type usageBreakdown struct {
 	UsageLimit            float64  `json:"usageLimit"`
 	CurrentUsagePrecision *float64 `json:"currentUsageWithPrecision"`
 	UsageLimitPrecision   *float64 `json:"usageLimitWithPrecision"`
+	OverageCap            float64  `json:"overageCap"`
+	OverageRate           float64  `json:"overageRate"`
+	CurrentOverages       float64  `json:"currentOverages"`
 	FreeTrialInfo         *struct {
 		CurrentUsage          float64     `json:"currentUsage"`
 		UsageLimit            float64     `json:"usageLimit"`
@@ -193,7 +203,11 @@ type usageLimitsResponse struct {
 		SubscriptionName  string `json:"subscriptionName"`
 		SubscriptionTitle string `json:"subscriptionTitle"`
 		SubscriptionType  string `json:"subscriptionType"`
+		OverageCapability string `json:"overageCapability"`
 	} `json:"subscriptionInfo"`
+	OverageConfiguration *struct {
+		OverageStatus string `json:"overageStatus"`
+	} `json:"overageConfiguration"`
 	UserInfo *struct {
 		Email  string `json:"email"`
 		UserID string `json:"userId"`
@@ -250,6 +264,10 @@ func (c *Client) UsageLimits(ctx context.Context, cred Cred) (Usage, *Error) {
 		name := firstNonEmptyStr(s.SubscriptionTitle, s.SubscriptionName, s.SubscriptionType)
 		out.Plan = parsePlan(name + " " + s.SubscriptionType)
 		out.PlanTitle = firstNonEmptyStr(s.SubscriptionTitle, s.SubscriptionName)
+		out.OverageCapability = strings.TrimSpace(s.OverageCapability)
+	}
+	if oc := r.OverageConfiguration; oc != nil {
+		out.OverageStatus = strings.ToUpper(strings.TrimSpace(oc.OverageStatus))
 	}
 	out.NextResetAt = numberUnix(r.NextDateReset)
 	// 取 AGENTIC_REQUEST（对话额度）那一栏；没有标类型时取第一栏。
@@ -266,6 +284,7 @@ func (c *Client) UsageLimits(ctx context.Context, cred Cred) (Usage, *Error) {
 	if b != nil {
 		out.Current = prec(b.CurrentUsagePrecision, b.CurrentUsage)
 		out.Limit = prec(b.UsageLimitPrecision, b.UsageLimit)
+		out.OverageCap, out.OverageRate, out.CurrentOverages = b.OverageCap, b.OverageRate, b.CurrentOverages
 		if t := b.FreeTrialInfo; t != nil {
 			out.TrialCurrent = prec(t.CurrentUsagePrecision, t.CurrentUsage)
 			out.TrialLimit = prec(t.UsageLimitPrecision, t.UsageLimit)
@@ -282,13 +301,50 @@ func (c *Client) UsageLimits(ctx context.Context, cred Cred) (Usage, *Error) {
 	return out, nil
 }
 
+// SetOverage 打开 / 关闭账号的超额开关（POST setUserPreference），再读一次额度返回最新状态。
+// 打开后额度用完不会被上游拒绝，超出部分按量计费（费用上限与单价见返回的 Usage）。
+func (c *Client) SetOverage(ctx context.Context, cred Cred, enabled bool) (Usage, *Error) {
+	status := "DISABLED"
+	if enabled {
+		status = "ENABLED"
+	}
+	body := map[string]any{"overageConfiguration": map[string]string{"overageStatus": status}}
+	if !cred.IsAPIKey() {
+		arn := strings.TrimSpace(cred.ProfileArn)
+		if arn == "" {
+			var err *Error
+			if arn, err = c.ResolveProfileArn(ctx, cred); err != nil {
+				return Usage{}, err
+			}
+		}
+		if arn != "" {
+			body["profileArn"] = arn
+		}
+	}
+	u := regionalize("https://q.us-east-1.amazonaws.com/setUserPreference", dataRegion(cred, ""))
+	if _, err := c.restDo(ctx, cred, http.MethodPost, u, body); err != nil {
+		return Usage{}, err
+	}
+	// 上游偶尔滞后：以刚设置的值为准；读失败也不算失败（设置已经成功）。
+	usage, err := c.UsageLimits(ctx, cred)
+	if err != nil {
+		return Usage{OverageStatus: status}, nil
+	}
+	usage.OverageStatus = status
+	return usage, nil
+}
+
 func parsePlan(raw string) string {
 	u := strings.ToUpper(raw)
 	switch {
 	case strings.Contains(u, "PRO_PLUS") || strings.Contains(u, "PROPLUS") || strings.Contains(u, "PRO+"):
 		return "PRO_PLUS"
+	case strings.Contains(u, "PRO_MAX") || strings.Contains(u, "PRO MAX") || strings.Contains(u, "PROMAX"):
+		return "PRO_MAX" // 必须排在 PRO 之前，否则会被吞成 PRO
 	case strings.Contains(u, "POWER"):
 		return "POWER"
+	case strings.Contains(u, "STUDENT"):
+		return "STUDENT"
 	case strings.Contains(u, "PRO"):
 		return "PRO"
 	default:
@@ -391,6 +447,36 @@ func (c *Client) ResolveProfileArn(ctx context.Context, cred Cred) (string, *Err
 		return "", last
 	}
 	return "", nil
+}
+
+// ListProfiles 列出账号在各候选区域下能用的全部 profile（企业账号可能有多个，需要用户挑一个）。
+// 全部区域都失败才返回错误；Builder ID 不支持 profile，直接返回空列表。
+func (c *Client) ListProfiles(ctx context.Context, cred Cred) ([]Profile, *Error) {
+	if cred.IsAPIKey() || strings.EqualFold(cred.Provider, "BuilderId") {
+		return nil, nil
+	}
+	var out []Profile
+	seen := map[string]bool{}
+	var last *Error
+	ok := false
+	for _, region := range c.profileCandidates(cred) {
+		ps, err := c.listProfiles(ctx, cred, region)
+		if err != nil {
+			last = err
+			continue
+		}
+		ok = true
+		for _, p := range ps {
+			if !seen[p.ARN] {
+				seen[p.ARN] = true
+				out = append(out, p)
+			}
+		}
+	}
+	if !ok && last != nil {
+		return nil, last
+	}
+	return out, nil
 }
 
 func (c *Client) profileCandidates(cred Cred) []string {

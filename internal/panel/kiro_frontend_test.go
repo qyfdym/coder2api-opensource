@@ -70,6 +70,10 @@ assert(kr.includes('realm-tag kr') && kr.includes('Builder ID · PRO'), kr);
 assert(ctx.accTypeHTML({ platform: 'kiro', auth_kind: 'APIKey', plan: '<b>' }).includes('API Key · &lt;b&gt;'));
 assert(ctx.accTypeHTML({ realm: 'qoder-cn' }).includes('realm-tag qd'));
 assert(!ctx.accTypeHTML({ realm: 'cn' }).includes(' kr'));
+// 超额已开：类型列要有显眼的标记；关着 / 未知时没有。
+assert(ctx.accTypeHTML({ platform: 'kiro', auth_kind: 'BuilderId', overage: 'ENABLED' }).includes('realm-tag od'));
+assert(!ctx.accTypeHTML({ platform: 'kiro', auth_kind: 'BuilderId', overage: 'DISABLED' }).includes('realm-tag od'));
+assert(!ctx.accTypeHTML({ platform: 'kiro', auth_kind: 'BuilderId' }).includes('realm-tag od'));
 assert.equal(ctx.krMergeImportTexts(['', '  ']), '');
 assert.equal(ctx.krMergeImportTexts(['\ufeff{"a":1}']), '{"a":1}');
 assert.equal(ctx.krMergeImportTexts(['{"a":1}', ' [{"b":2}] ']), '[\n{"a":1},\n[{"b":2}]\n]');
@@ -87,5 +91,72 @@ console.log('OK');`
 	out, err := exec.Command(node, f.Name(), "app.js").CombinedOutput()
 	if err != nil || !strings.Contains(string(out), "OK") {
 		t.Fatalf("kiro helpers: %v\n%s", err, out)
+	}
+}
+
+// 超额开关会产生真实费用：用户在确认框点取消时绝不能发出请求；确认文案要带真实的费用数字；
+// 订阅不支持时直接拦住；请求体显式带 enabled。
+func TestAppJSKiroOverageToggle(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not installed; overage toggle test skipped")
+	}
+	script := `const fs = require('fs');
+const vm = require('vm');
+const assert = require('assert');
+const src = fs.readFileSync(process.argv[2], 'utf8');
+const i = src.indexOf('const fmtUSD'), j = src.indexOf('/* ── 添加 Kiro 账号：网页登录');
+if (i < 0 || j < i) throw new Error('overage region not found');
+const calls = [], toasts = [], confirms = [];
+let answer = true, state = {};
+const ctx = {
+  encodeURIComponent, Number, JSON,
+  api: async (path, opts) => { calls.push({ path, body: opts && opts.body ? JSON.parse(opts.body) : null }); return state; },
+  confirm: msg => { confirms.push(msg); return answer; },
+  toast: (m, c) => toasts.push([m, c]),
+};
+vm.createContext(ctx);
+vm.runInContext(src.slice(i, j) + '\nthis.kiroOverageToggle = kiroOverageToggle;', ctx);
+(async () => {
+  // 关着 → 取消确认：只读了状态，没有任何 POST。
+  state = { capable: true, enabled: false, cap_usd: 200, rate_usd: 0.04, current_usd: 1.5 };
+  answer = false;
+  await ctx.kiroOverageToggle('k/1');
+  assert.equal(calls.length, 1); assert.equal(calls[0].body, null);
+  assert.equal(calls[0].path, 'kiro/accounts/k%2F1/overage', 'uid must be URL-encoded');
+  assert(/\$200\.00/.test(confirms[0]) && /\$0\.04/.test(confirms[0]) && /\$1\.50/.test(confirms[0]) && /真实费用/.test(confirms[0]), confirms[0]);
+  assert.equal(toasts.length, 0);
+  // 关着 → 确认：POST {enabled:true}。
+  calls.length = 0; answer = true;
+  await ctx.kiroOverageToggle('k1');
+  assert.equal(calls.length, 2); assert.deepEqual(calls[1].body, { enabled: true });
+  // 开着 → 确认：POST {enabled:false}，且提示关闭后会冷却。
+  calls.length = 0; confirms.length = 0;
+  state = { capable: true, enabled: true, cap_usd: 50, rate_usd: 0, current_usd: 0 };
+  await ctx.kiroOverageToggle('k1');
+  assert.deepEqual(calls[1].body, { enabled: false }); assert(/冷却/.test(confirms[0]));
+  // 开着 → 取消：不改。
+  calls.length = 0; answer = false;
+  await ctx.kiroOverageToggle('k1');
+  assert.equal(calls.length, 1);
+  // 订阅不支持：不弹确认、不 POST，给出提示。
+  calls.length = 0; confirms.length = 0; toasts.length = 0; answer = true;
+  state = { capable: false, enabled: false, subscription: 'KIRO FREE' };
+  await ctx.kiroOverageToggle('k1');
+  assert.equal(calls.length, 1); assert.equal(confirms.length, 0);
+  assert.equal(toasts[0][1], 'err'); assert(/KIRO FREE/.test(toasts[0][0]));
+  console.log('OK');
+})().catch(e => { console.error(e); process.exit(1); });`
+	f, err := os.CreateTemp(t.TempDir(), "kiro-overage-*.cjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(script); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	out, err := exec.Command(node, f.Name(), "app.js").CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "OK") {
+		t.Fatalf("overage toggle: %v\n%s", err, out)
 	}
 }

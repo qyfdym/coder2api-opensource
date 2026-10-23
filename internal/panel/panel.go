@@ -112,8 +112,11 @@ type Panel struct {
 	qdLogins  map[string]*qoder.LoginSession
 
 	// krLogins 进行中的 Kiro 设备授权会话（会话 ID → 会话，含一次性的 OIDC 客户端凭证）；见 kiro.go。
+	// krPortals 进行中的 Kiro 网页登录会话（Google / GitHub / Microsoft 企业 SSO，含 PKCE verifier
+	// 与待选 profile 的临时凭证）。两者共用 krLoginMu。
 	krLoginMu sync.Mutex
 	krLogins  map[string]*kiro.LoginSession
+	krPortals map[string]*krPortal
 }
 
 // tryLockAccount 尝试锁定账号的任务执行；已在执行返回 false。
@@ -157,13 +160,14 @@ func New(cfg Config) *Panel {
 		cfg.RedisMode = "noop"
 	}
 	p := &Panel{
-		cfg:      cfg,
-		mux:      http.NewServeMux(),
-		started:  time.Now(),
-		logs:     NewRing(500),
-		logins:   map[string]loginSession{},
-		qdLogins: map[string]*qoder.LoginSession{},
-		krLogins: map[string]*kiro.LoginSession{},
+		cfg:       cfg,
+		mux:       http.NewServeMux(),
+		started:   time.Now(),
+		logs:      NewRing(500),
+		logins:    map[string]loginSession{},
+		qdLogins:  map[string]*qoder.LoginSession{},
+		krLogins:  map[string]*kiro.LoginSession{},
+		krPortals: map[string]*krPortal{},
 	}
 	p.routes()
 	return p
@@ -233,6 +237,12 @@ func (p *Panel) routes() {
 	p.mux.HandleFunc("GET /panel/api/kiro/login/poll", p.withAuth(p.kiroLoginPoll))
 	p.mux.HandleFunc("POST /panel/api/kiro/login/cancel", p.withAuth(p.kiroLoginCancel))
 	p.mux.HandleFunc("POST /panel/api/kiro/import", p.withAuth(p.kiroImport))
+	p.mux.HandleFunc("POST /panel/api/kiro/import/local", p.withAuth(p.kiroImportLocal))
+	p.mux.HandleFunc("POST /panel/api/kiro/login/portal/start", p.withAuth(p.kiroPortalStart))
+	p.mux.HandleFunc("POST /panel/api/kiro/login/portal/complete", p.withAuth(p.kiroPortalComplete))
+	p.mux.HandleFunc("POST /panel/api/kiro/login/portal/select", p.withAuth(p.kiroPortalSelect))
+	p.mux.HandleFunc("GET /panel/api/kiro/accounts/{uid}/overage", p.withAuth(p.kiroOverageGet))
+	p.mux.HandleFunc("POST /panel/api/kiro/accounts/{uid}/overage", p.withAuth(p.kiroOverageSet))
 }
 
 // ServeHTTP 统一入口：先写安全响应头再分发，保证页面、静态资源、API

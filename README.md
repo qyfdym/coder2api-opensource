@@ -145,11 +145,15 @@ Kiro 协议由 Go 原生实现（`internal/kiro`，移植自 [Quorinex/Kiro-Go](
 |---|---|
 | Kiro 登录 · AWS Builder ID | 网关生成验证码与链接，在浏览器里用 AWS 账号（邮箱 + 密码）登录并确认；密码只在 AWS 页面输入，不经过网关 |
 | Kiro 登录 · IAM Identity Center | 同上，额外填组织的 Start URL（`https://d-xxxx.awsapps.com/start`）与区域 |
+| Kiro 登录 · 网页登录 | 走 Kiro 官网登录页，覆盖 **Google / GitHub 社交账号**和 **Microsoft 企业账号**（输入公司邮箱自动识别）。登录完成后浏览器会跳到一个「无法访问 localhost」的页面，这是预期的：把地址栏里的完整地址粘回面板即可，网关不监听任何端口。企业账号还有第二步 Microsoft 登录页，账号有多个 profile 时最后让你挑一个。⚠️ 社交登录的换 token 步骤依据公开的第三方实现编写，**未经真机验证**；企业 SSO 移植自 Kiro-Go |
 | Kiro 导入 · JSON | Kiro-Go / Kiro Account Manager 导出，或 Kiro IDE 的 `~/.aws/sso/cache/kiro-auth-token.json`（IdC 账号把同目录的 clientId 文件一起选上，自动配对） |
 | Kiro 导入 · 行格式 | `邮箱----密码----refreshToken----clientId----clientSecret`，一行一个；密码列只为兼容常见导出格式，不使用也不保存 |
 | Kiro 导入 · refresh token / API Key | 单独一行 refresh token（社交登录），或 `ksk_xxx`（可写 `ksk_xxx\|eu-central-1` 指定区域） |
+| Kiro 导入 · Microsoft 企业账号 | JSON 里 `authMethod` 为 `external_idp` / `azuread` 的记录（Kiro-Go、Kiro Account Manager 导出）。缺失的 `tokenEndpoint` / `issuerUrl` / `scopes` 会按 `issuerUrl`、`tokenEndpoint`、KAM 的 `userId`、access token 的 `iss` 依次补全，补全后必须通过白名单校验；导出里的 `clientSecret` 会被丢弃（公共客户端不需要） |
+| Kiro 导入 · SSO Token | 导入框切到「SSO Token」，每行一个 `x-amz-sso_authn`（浏览器登录 `view.awsapps.com/start` → F12 → Application → Cookies 里复制）。网关用它自动完成设备授权，换出 Builder ID 账号，省掉手点确认；一次最多 20 个。这个值是一份**活的登录会话**：只用于换取凭证，不保存、不写日志、不进错误信息 |
+| Kiro 导入 · 本机 IDE 缓存 | 「读取本机 Kiro IDE 登录缓存」按钮：读取**网关所在机器**的 `~/.aws/sso/cache/kiro-auth-token.json`，IdC 账号按其中的 `clientIdHash` 精确配对 `<hash>.json`。只读这两类固定文件；网关在别的机器 / 容器里时读不到，会如实说明。access token 还有效时不立即刷新，尽量推迟 refresh token 轮换。⚠️ 网关和 Kiro IDE 共用一份 refresh token 时，谁先刷新谁就让对方那份失效（会互相登出），建议给网关用单独的账号 |
 
-导入时 OAuth 凭证先刷新一次、再查一次额度确认可用；同一个账号重复导入覆盖同一个文件（`auths/kiro-<uid>.json`）。账号池表格里用紫色「Kiro」徽标区分，副标题是身份来源与订阅档位。
+导入时 OAuth 凭证先刷新一次、再查一次额度确认可用；同一个账号重复导入覆盖同一个文件（`auths/kiro-<uid>.json`）。账号池表格里用紫色「Kiro」徽标区分，副标题是身份来源与订阅档位（Builder ID / Identity Center / Google / GitHub / Microsoft / API Key）。
 
 **模型名**：`kiro:模型名`，例如 `kiro:claude-sonnet-4.5`（`claude-sonnet-4-5` 写法同样接受）；`GET /v1/models` 在池里有 Kiro 账号时列出 `kiro:` 条目（动态目录，拉不到时用内置目录）。
 
@@ -181,7 +185,11 @@ Kiro 协议由 Go 原生实现（`internal/kiro`，移植自 [Quorinex/Kiro-Go](
 
 `models.hidden` 支持 `kiro:X`；`models.fallback` 的键值同样可写 `kiro:X`。`kiro` 段属于装配期配置，改动需重启。
 
-暂未支持（二期）：Microsoft 企业 SSO（external_idp）账号、SSO token 导入、读取本机 Kiro IDE 缓存、社交账号网页登录（PKCE）、超额（overage）开关、`/v1/responses`、web_search 模拟。
+**Microsoft 企业 SSO 的安全约束**：这类账号的 token 由微软租户签发，刷新直接发给租户的 OAuth2 端点。refresh token 只会发给白名单里的微软登录域名（`login.microsoftonline.com` / `.us` / `login.partner.microsoftonline.cn`），且端点路径必须与签发者租户一致；账号文件里持久化的 `issuerUrl` / `tokenEndpoint` / `scopes` 每次刷新前都会重新校验，被改到白名单外的账号会被当作「需要重新登录」停用，一个字节都不会发出去。IdP 请求不跟随重定向、响应体限长；PKCE verifier、state、待选 profile 的临时凭证只在服务端内存里，完成 / 取消 / 10 分钟过期即清除。
+
+**超额开关**：账号行的「超额」按钮读取并切换 Kiro 的超额设置（额度用完后上游继续放行，超出部分**按量计费**）。打开前会弹确认框，写明费用上限、单价和本周期已产生的费用；请求体必须显式带 `enabled`。打开后「额度用完」的号不再被冷却（调度器与面板口径一致），账号行会显示「超额」标记；关闭后额度仍是 0 的号会重新进入冷却。
+
+暂未支持：`/v1/responses`、web_search 模拟、提示词缓存估算与提示词过滤。
 
 ## 🎯 成长任务一键完成（17/18）
 

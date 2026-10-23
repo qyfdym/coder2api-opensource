@@ -157,7 +157,9 @@ endpoints:
 					last.Kind == KindQuota || last.Kind == KindSuspended {
 					return last
 				}
-				c.logf("endpoint %s for %s: HTTP %d, trying next", ep.Name, cred.label(), resp.StatusCode)
+				// 带上上游的错误文本（服务端的报错，不含我们的凭证；截断）：只记状态码的话，
+				// 三个入口都 400 时根本无从判断是请求格式、账号权限还是模型问题。
+				c.logf("endpoint %s for %s: HTTP %d, trying next: %s", ep.Name, cred.label(), resp.StatusCode, truncate(strings.TrimSpace(string(raw)), 300))
 				continue endpoints
 			}
 			emitted, perr := parseEventStream(resp.Body, cb)

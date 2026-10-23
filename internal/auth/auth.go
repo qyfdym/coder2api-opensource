@@ -87,9 +87,10 @@ func IsKiroRealm(realm string) bool { return realm == RealmKiro }
 // （直接从这些工具导出的单个账号对象）可以原样放进 auth_dir 载入。
 type KiroMeta struct {
 	// AuthMethod 认证方式：social（Google / GitHub / 社交登录，走 Kiro 桌面认证刷新）/
-	// idc（AWS Builder ID 与 IAM Identity Center，走 OIDC 刷新）/ api_key（ksk_ 密钥，不刷新）。
+	// idc（AWS Builder ID 与 IAM Identity Center，走 OIDC 刷新）/ external_idp（Microsoft 企业
+	// SSO，走 Entra 租户端点刷新）/ api_key（ksk_ 密钥，不刷新）。
 	AuthMethod string `json:"authMethod,omitempty"`
-	// Provider 身份来源：BuilderId / Enterprise / Google / Github / APIKey。
+	// Provider 身份来源：BuilderId / Enterprise / Google / Github / AzureAD / Social / APIKey。
 	Provider string `json:"provider,omitempty"`
 	// Region OIDC 认证区域；API Key 账号是数据面区域。缺省 us-east-1。
 	Region string `json:"region,omitempty"`
@@ -98,6 +99,11 @@ type KiroMeta struct {
 	ClientSecret string `json:"clientSecret,omitempty"`
 	// StartURL IAM Identity Center 的起始地址（Builder ID 为官方默认地址）。
 	StartURL string `json:"startUrl,omitempty"`
+	// TokenEndpoint / IssuerURL / Scopes 仅 external_idp（Microsoft 企业 SSO）：刷新 token 的
+	// Entra 租户端点、签发者与申请的 scope（空格分隔）。其它方式为空。
+	TokenEndpoint string `json:"tokenEndpoint,omitempty"`
+	IssuerURL     string `json:"issuerUrl,omitempty"`
+	Scopes        string `json:"scopes,omitempty"`
 	// ProfileArn Kiro / CodeWhisperer profile（决定数据面区域；刷新响应或 profile 列表里取得）。
 	ProfileArn string `json:"profileArn,omitempty"`
 	// MachineID 出站请求头里的机器标识（每号固定，首次建档时生成）。
@@ -111,6 +117,9 @@ type KiroMeta struct {
 	PlanTitle string `json:"subscriptionTitle,omitempty"`
 	// NextResetAt 额度下次重置时刻（Unix 秒；额度耗尽的冷却以它为准）。
 	NextResetAt int64 `json:"nextResetAt,omitempty"`
+	// OverageStatus 超额（额度用完后按量计费）开关：ENABLED / DISABLED / 空 = 未知。查额度时顺带
+	// 刷新；ENABLED 时额度用完不进硬冷却（上游仍会放行，超出部分计费）。
+	OverageStatus string `json:"overageStatus,omitempty"`
 	// Source 建档来源：builder_id / idc / import / api_key。
 	Source  string `json:"source,omitempty"`
 	AddedAt int64  `json:"addedAt,omitempty"`

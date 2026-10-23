@@ -1,6 +1,7 @@
 package kiro
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
@@ -34,6 +35,8 @@ type Options struct {
 	ModelCacheTTL time.Duration
 	// Transport 覆盖底层 RoundTripper（测试注入假上游用）；nil = 按 ProxyURL 构建。
 	Transport http.RoundTripper
+	// Sleep 覆盖轮询等待（测试注入空实现，免得单测真等几秒）；nil = 真实等待。
+	Sleep func(ctx context.Context, d time.Duration) error
 	// Logf 日志输出；nil = log.Printf（统一加 "[kiro] " 前缀）。
 	Logf func(format string, args ...any)
 }
@@ -49,6 +52,24 @@ type Client struct {
 
 	// profileSuppress Builder ID 账号的 ListAvailableProfiles 不受支持（403）：记下来 24h 内不再查。
 	profileSuppress sync.Map // uid → time.Time
+
+	// sleep 轮询等待（nil = 真实等待；测试注入空实现，免得单测真等几秒）。
+	sleep func(ctx context.Context, d time.Duration) error
+}
+
+// wait 等待 d 或 ctx 结束。
+func (c *Client) wait(ctx context.Context, d time.Duration) error {
+	if c.sleep != nil {
+		return c.sleep(ctx, d)
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 const (
@@ -83,7 +104,7 @@ func NewClient(opts Options) *Client {
 	if opts.Endpoint == "" {
 		opts.Endpoint = "auto"
 	}
-	c := &Client{opts: opts}
+	c := &Client{opts: opts, sleep: opts.Sleep}
 	streamRT := opts.Transport
 	restRT := opts.Transport
 	if streamRT == nil {

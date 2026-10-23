@@ -22,7 +22,7 @@
     "queue_max_wait_seconds": 600
   },
   "kiro": {
-    "_comment": "Kiro 平台（AWS CodeWhisperer / Amazon Q Developer，Go 原生实现，移植自 Kiro-Go）。Kiro 账号与其它平台账号在同一个账号池，共用 api_key / 选号 / 冷却 / 会话粘性；账号在面板「添加账号 → Kiro 登录（AWS Builder ID / IAM Identity Center 设备授权）/ Kiro 导入（JSON、邮箱----密码----refreshToken----clientId----clientSecret 行格式、refresh token、ksk_ API Key）」添加，文件落在 auth_dir/kiro-<uid>.json。调用名：kiro:模型名（如 kiro:claude-sonnet-4.5）；思考默认关闭，带 reasoning_effort（low / medium / high / xhigh / max）、thinking.budget_tokens 或模型名加 -thinking 后缀即开启。endpoint：auto（Kiro IDE → CodeWhisperer → AmazonQ 依次回退）/ kiro / codewhisperer / amazonq（指定者优先）。proxy_url 空 = 跟随 HTTPS_PROXY；kiro_version 空 = 内置默认。装配期字段，改动需重启。",
+    "_comment": "Kiro 平台（AWS CodeWhisperer / Amazon Q Developer，Go 原生实现，移植自 Kiro-Go）。Kiro 账号与其它平台账号在同一个账号池，共用 api_key / 选号 / 冷却 / 会话粘性；账号在面板「添加账号 → Kiro 登录（AWS Builder ID / IAM Identity Center 设备授权，或网页登录：Google / GitHub / Microsoft 企业账号）/ Kiro 导入（JSON、邮箱----密码----refreshToken----clientId----clientSecret 行格式、refresh token、ksk_ API Key、SSO Token、本机 Kiro IDE 缓存）」添加，文件落在 auth_dir/kiro-<uid>.json。账号行的「超额」按钮可开关超额（额度用完后按量计费，会产生费用）。调用名：kiro:模型名（如 kiro:claude-sonnet-4.5）；思考默认关闭，带 reasoning_effort（low / medium / high / xhigh / max）、thinking.budget_tokens 或模型名加 -thinking 后缀即开启。endpoint：auto（Kiro IDE → CodeWhisperer → AmazonQ 依次回退）/ kiro / codewhisperer / amazonq（指定者优先）。proxy_url 空 = 跟随 HTTPS_PROXY；kiro_version 空 = 内置默认。装配期字段，改动需重启。",
     "enabled": true,
     "endpoint": "auto",
     "proxy_url": "",

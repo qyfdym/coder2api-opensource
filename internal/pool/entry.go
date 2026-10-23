@@ -102,6 +102,8 @@ type Status struct {
 	// Google / Github / APIKey），供面板展示账号类型副标题。
 	Plan     string `json:"plan,omitempty"`
 	AuthKind string `json:"auth_kind,omitempty"`
+	// Overage 仅 Kiro：超额（额度用完后按量计费）开关，ENABLED / DISABLED / 空 = 未知。
+	Overage string `json:"overage,omitempty"`
 	// Enterprise 企业版账号（auth.EnterpriseID 非空，计算值不落盘）。
 	// 企业版无个人成长体系（签到/成长任务/连登/旅行/夜猫子 上游均拒），
 	// 面板据此隐藏对应按钮；选号、保活、额度展示不受影响。

@@ -25,7 +25,7 @@ type ImportItem struct {
 	ExpiresAt    int64
 	ClientID     string
 	ClientSecret string
-	AuthMethod   string // social / idc / api_key
+	AuthMethod   string // social / idc / external_idp / api_key
 	Provider     string
 	Region       string
 	StartURL     string
@@ -33,6 +33,11 @@ type ImportItem struct {
 	APIKey       string
 	Email        string
 	Nickname     string
+	// 仅 external_idp（Microsoft 企业 SSO）：租户 token 端点 / 签发者 / scope，以及 JWT 里的用户标识。
+	TokenEndpoint string
+	IssuerURL     string
+	Scopes        string
+	UserID        string
 }
 
 // ParseImport 解析导入文本。返回可导入的条目，以及被跳过的条目说明（格式不全 / 不支持）。
@@ -185,8 +190,15 @@ func parseExpiresAt(rec map[string]any) int64 {
 		}
 		return n
 	case string:
+		s := strings.TrimSpace(v)
 		for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05.000Z"} {
-			if t, err := time.Parse(layout, strings.TrimSpace(v)); err == nil {
+			if t, err := time.Parse(layout, s); err == nil {
+				return t.Unix()
+			}
+		}
+		// Kiro Account Manager 导出的是不带时区的本地时间（"2026/10/23 23:47:28"），按本机时区解释。
+		for _, layout := range []string{"2006/01/02 15:04:05", "2006-01-02 15:04:05"} {
+			if t, err := time.ParseInLocation(layout, s, time.Local); err == nil {
 				return t.Unix()
 			}
 		}
@@ -197,6 +209,80 @@ func parseExpiresAt(rec map[string]any) int64 {
 var externalIdpWords = map[string]bool{
 	"external_idp": true, "external-idp": true, "external": true, "microsoft": true, "m365": true,
 	"office365": true, "azure": true, "azuread": true, "azure-ad": true, "azure_ad": true, "entra": true, "entra-id": true,
+}
+
+// externalIdpItem Microsoft 企业 SSO 记录 → 导入条目。缺失的 tokenEndpoint / issuerUrl / scopes
+// 依次由 issuer、tokenEndpoint、Kiro Account Manager 的 userId、access token 的 iss 声明补全；
+// 补全后必须通过白名单与租户一致性校验，clientSecret 一律丢弃（公共客户端不需要）。
+func externalIdpItem(r map[string]any) (ImportItem, string) {
+	rt := recordValue(r, "refreshToken", "refresh_token")
+	if rt == "" {
+		return ImportItem{}, "缺少 refreshToken"
+	}
+	clientID := recordValue(r, "clientId", "client_id")
+	if !uuidPattern.MatchString(clientID) {
+		return ImportItem{}, "企业 SSO 账号需要 clientId（Microsoft 应用的 UUID）"
+	}
+	at := recordValue(r, "accessToken", "access_token")
+	tokenEndpoint := recordValue(r, "tokenEndpoint", "token_endpoint")
+	issuer := strings.TrimRight(recordValue(r, "issuerUrl", "issuer_url"), "/")
+	scopes := recordValue(r, "scopes", "scope")
+	userID := recordValue(r, "userId")
+
+	dEndpoint, dIssuer, dScopes := DeriveExternalIdpConfig(userID, clientID, at)
+	if issuer == "" && tokenEndpoint != "" {
+		if ep, iss, sc := ExternalIdpConfigFromTokenEndpoint(tokenEndpoint, clientID); ep != "" {
+			tokenEndpoint, issuer = ep, iss
+			if scopes == "" {
+				scopes = sc
+			}
+		}
+	}
+	if issuer == "" {
+		issuer = dIssuer
+	}
+	if issuer != "" {
+		ep, iss, sc := ExternalIdpConfigFromIssuer(issuer, clientID)
+		if tokenEndpoint == "" {
+			tokenEndpoint = ep
+		}
+		if iss != "" {
+			issuer = iss
+		}
+		if scopes == "" {
+			scopes = sc
+		}
+	}
+	if tokenEndpoint == "" {
+		tokenEndpoint = dEndpoint
+	}
+	if scopes == "" {
+		scopes = dScopes
+	}
+	if issuer == "" || tokenEndpoint == "" {
+		return ImportItem{}, "无法确定企业 SSO 的租户（需要 issuerUrl 或 tokenEndpoint，或带 iss 声明的 accessToken）"
+	}
+	norm, err := NormalizeExternalIdpScopes(scopes, clientID)
+	if err != nil {
+		return ImportItem{}, err.Error()
+	}
+	if err := ValidateExternalIdpConfig(clientID, tokenEndpoint, issuer, norm); err != nil {
+		return ImportItem{}, err.Error()
+	}
+	it := ImportItem{
+		RefreshToken: rt, AccessToken: at, ExpiresAt: parseExpiresAt(r), ClientID: clientID,
+		AuthMethod: AuthMethodExternalIDP, Provider: ProviderAzureAD, Region: defaultRegion,
+		TokenEndpoint: tokenEndpoint, IssuerURL: issuer, Scopes: norm, UserID: userID,
+		Email: recordValue(r, "email"), Nickname: recordValue(r, "nickname", "name"),
+	}
+	if p := recordValue(r, "profileArn", "profile_arn"); p != "" {
+		arn, _, ok := ParseProfileArn(p)
+		if !ok {
+			return ImportItem{}, "profileArn 格式不合法"
+		}
+		it.ProfileArn = arn
+	}
+	return it, ""
 }
 
 // normalizeRecords 把 JSON 账号对象归一成 ImportItem，并把 Kiro IDE 的 token 文件与对应的
@@ -218,8 +304,18 @@ func normalizeRecords(recs []map[string]any) ([]ImportItem, []string) {
 		label := fmt.Sprintf("第 %d 个账号", i+1)
 		method := strings.ToLower(recordValue(r, "authMethod", "auth_method"))
 		provider := recordValue(r, "provider", "idp")
-		if externalIdpWords[method] || externalIdpWords[strings.ToLower(provider)] || recordValue(r, "tokenEndpoint", "issuerUrl") != "" {
-			skipped = append(skipped, label+"：外部身份源（Microsoft 企业 SSO）账号暂不支持（计划二期）")
+		// 显式的 AWS / 社交方式优先于记录里顺带出现的 tokenEndpoint / issuerUrl 字段，
+		// 免得混合模板把一条 IdC 账号误判成企业 SSO。
+		explicitAWS := method == "idc" || method == "builderid" || method == "enterprise" || method == "iam_identity_center" ||
+			method == "social" || method == "google" || method == "github" || method == "api_key" || method == "apikey"
+		implicitIdp := method == "" && provider == "" && recordValue(r, "tokenEndpoint", "issuerUrl", "token_endpoint", "issuer_url") != ""
+		if !explicitAWS && (externalIdpWords[method] || externalIdpWords[strings.ToLower(provider)] || implicitIdp) {
+			it, why := externalIdpItem(r)
+			if why != "" {
+				skipped = append(skipped, label+"："+why)
+				continue
+			}
+			items = append(items, it)
 			continue
 		}
 		region := strings.ToLower(recordValue(r, "region"))

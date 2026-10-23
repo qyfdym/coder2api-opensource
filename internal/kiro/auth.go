@@ -5,6 +5,7 @@ package kiro
 //   - social（Google / GitHub 社交登录）：POST prod.us-east-1.auth.desktop.kiro.dev/refreshToken；
 //   - idc（AWS Builder ID / IAM Identity Center）：POST oidc.<region>.amazonaws.com/token，
 //     需要登录时注册的 OIDC 客户端（clientId / clientSecret）；
+//   - external_idp（Microsoft 企业 SSO）：见 externalidp.go，表单提交到租户 token 端点；
 //   - api_key：不刷新。
 //
 // 设备授权（Builder ID 与 IAM Identity Center 共用一条流程，后者多一个 startUrl）：
@@ -76,8 +77,8 @@ func (c *Client) Refresh(ctx context.Context, cred Cred) (TokenSet, *Error) {
 	switch strings.ToLower(strings.TrimSpace(cred.AuthMethod)) {
 	case "social":
 		target, body = socialRefreshURL, map[string]string{"refreshToken": cred.RefreshToken}
-	case "external_idp":
-		return TokenSet{}, &Error{Kind: KindBadRequest, Msg: "外部身份源（Microsoft 企业 SSO）账号暂不支持（计划二期）"}
+	case AuthMethodExternalIDP:
+		return c.refreshExternalIdp(ctx, cred)
 	default:
 		if cred.ClientID == "" || cred.ClientSecret == "" {
 			return TokenSet{}, &Error{Kind: KindSessionDead, Msg: "IdC 账号缺少 clientId / clientSecret，需要重新登录"}

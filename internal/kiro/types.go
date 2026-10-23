@@ -40,11 +40,20 @@ type Cred struct {
 	ClientID     string
 	ClientSecret string
 	StartURL     string
+	// TokenEndpoint / IssuerURL / Scopes 仅 external_idp（Microsoft 企业 SSO）刷新用。
+	TokenEndpoint string
+	IssuerURL     string
+	Scopes        string
 	// ProfileArn 数据面 profile（决定请求打到哪个区域）。
 	ProfileArn string
 	MachineID  string
 	// APIKey ksk_ 密钥（api_key 账号）。
 	APIKey string
+}
+
+// IsExternalIDP 报告是否为 Microsoft 企业 SSO（external_idp）账号。
+func (c Cred) IsExternalIDP() bool {
+	return strings.EqualFold(strings.TrimSpace(c.AuthMethod), "external_idp")
 }
 
 // IsAPIKey 报告该凭证是否为 Kiro API Key（走 Kiro CLI runtime，不刷新、不带 profileArn）。
