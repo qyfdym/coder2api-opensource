@@ -162,12 +162,12 @@ Kiro 协议由 Go 原生实现（`internal/kiro`，移植自 [Quorinex/Kiro-Go](
 **出站代理（Kiro 需要海外出口 IP 才有 Claude）**：Kiro 按出口 IP 的地区放出模型。真机对比同一个账号：国内 IP（中国移动）的目录没有 Claude，经美国代理（机房 IP 即可）有 21 个模型，Claude 聊天与思考档位都正常。所以部署在国内或其它被限制的地区时，Kiro 的请求要走海外代理。选择顺序：
 
 1. **账号自己的代理**：面板账号行的「代理」按钮，留空 = 自动，`direct` = 这个账号不走代理，或填 `http://` / `https://` / `socks5://` 地址（可带 `user:pass@`）。落盘在账号文件的 `proxyUrl`，面板和日志里只显示脱敏后的地址。
-2. **代理池** `kiro.proxy_pool`：没有自己代理的账号按账号稳定地分配到池里的一个成员（同一个账号总是同一个出口，池里增删成员只影响落在该成员上的账号）；该代理连不上（连续两次拨号 / 隧道失败）时顺延到这个账号偏好顺序里的下一个，一分钟后放请求试探、成功即恢复。池里全挂时请求直接失败，**不会**悄悄改走直连。
+2. **代理池**：在面板左侧「Kiro 代理池」页管理（见下），也可以写在 `config.json` 的 `kiro.proxy_pool`（只读，改动需重启）。没有自己代理的账号按账号稳定地分配到池里的一个成员（同一个账号总是同一个出口）；新成员加入时约 1/N 的账号会改用它，删除成员只影响落在它身上的账号。该代理连不上（连续两次拨号 / 隧道失败）时顺延到这个账号偏好顺序里的下一个，一分钟后放请求试探、成功即恢复。池里全挂时请求直接失败，**不会**悄悄改走直连。
 3. **平台默认** `kiro.proxy_url`，再往下是环境变量 `HTTPS_PROXY`。
 
 一个账号的推理、刷新 token、额度、模型目录共用同一个出口。换出口后该账号缓存的模型目录与「模型不可用」冷却会立即作废，下次按新出口重拉。WorkBuddy 和 Qoder 仍只读环境变量，不受影响。
 
-**机场订阅**：网关只直接支持 `http` / `https` / `socks5` 代理地址，订阅里的 vmess / vless / trojan / ss / hysteria 等节点不能直接填。做法是在网关旁边跑一个本地代理内核（mihomo / Clash Meta、sing-box、xray 都行）加载订阅，让它在本机开一个 `http` / `socks5` 端口，再把这个端口填进 `kiro.proxy_url` 或 `kiro.proxy_pool`（本机已经在用 Clash 类客户端的话，它的混合端口就是现成的）。**Docker Compose 部署**可以直接用仓库里现成的 mihomo 服务（默认不启动）：`mkdir -p mihomo && cp deploy/mihomo/config.example.yaml mihomo/config.yaml`，把 `mihomo/config.yaml` 里的订阅地址换成你的，然后 `docker compose --profile proxy up -d`，`config.json` 里写 `"proxy_url": "http://mihomo:7890"`。mihomo 不发布端口，只有同一 compose 网络里的网关连得上；节点组用 `fallback`（一直用排第一的美国节点，它不通了才换），同一个账号的出口不会频繁变。**不用 Docker（宝塔 Go 项目 / 单文件二进制）**：把 mihomo 的 Linux 可执行文件、`deploy/mihomo/config.host.example.yaml`（改名为 `config.yaml` 并填订阅地址）上传到服务器的 `/opt/mihomo/`，按 `deploy/mihomo/mihomo.service` 里的注释注册成 systemd 服务（或交给宝塔的 Supervisor 守护，启动命令 `/opt/mihomo/mihomo -d /opt/mihomo`）。这份模板只监听 `127.0.0.1:7890`，`config.json` 里写 `"proxy_url": "http://127.0.0.1:7890"`。模板里的 `KIRO` 组靠 `filter` 按节点名挑节点，**要改成能匹配你的节点名**（最稳是填你在 Clash Verge 里确认能用的那个节点的完整名字）；mihomo 对「过滤后一个节点都没有」的组会悄悄改走直连，所以模板里放了一个永远连不上的「保险丝」节点，匹配不到时请求会失败而不是从国内 IP 出去，`journalctl -u mihomo` 里每条连接都写着 `using KIRO[实际用的节点]`，看到 `kiro-guard` 就是没匹配上。先在服务器上 `curl -x http://127.0.0.1:7890 https://ipinfo.io/country` 确认返回海外国家，再改网关配置。**不要**给网关设 `HTTPS_PROXY` 环境变量——那会让 WorkBuddy 和 Qoder 也走代理。反向代理（Nginx 等）只管入站，和出站代理无关。注意让内核**固定使用一个美国节点**（策略组选 `select`，不要 `url-test` / `load-balance` 自动切换），否则同一个账号的出口 IP 会来回变；想让不同账号走不同节点，就让内核给每个节点开一个独立端口，放进 `proxy_pool` 或在账号上单独指定。
+**Kiro 代理池页**：左侧「设置」下的「Kiro 代理池」。一次可以粘贴多行，每行一个，支持 `socks5://user:pass@host:port`、`http://host:port`、`host:port`、`user:pass@host:port`、`host:port:user:pass`（没写协议的按页面上选的 HTTP / SOCKS5），地址后面空格接备注，`#` 开头的行忽略。添加后立即生效并自动测试一遍：测试经这个代理访问 Kiro 入口，显示是否连通、延迟、出口 IP 与国家（国家取自 ipinfo.io，查不到不影响连通结论；出口在中国大陆的代理拿不到 Claude，会标红提示）。每个代理可以单独测试、停用、启用、删除，已停用的也能测。池子变化后，出口因此改变的账号会作废缓存的模型目录与「模型不可用」冷却，下次按新出口重拉。代理存放在 `state_file` 同目录的 `kiro-proxies.json`（含代理密码，权限 0600，`data/` 默认已被 `.gitignore` 忽略），页面和日志里只显示脱敏后的 `scheme://host:port`，上限 200 个。代理地址只支持 `http` / `https` / `socks5`，机场订阅里的 vmess / vless / trojan 等节点不能直接填。WorkBuddy 和 Qoder 不受影响；**不要**给网关设 `HTTPS_PROXY` 环境变量（那会让它们也走代理）。反向代理（Nginx 等）只管入站，和出站代理无关。
 
 **思考强度**：Kiro 默认不思考，请求带以下任一写法即开启（显式关闭优先）：
 
@@ -201,7 +201,7 @@ Kiro 协议由 Go 原生实现（`internal/kiro`，移植自 [Quorinex/Kiro-Go](
 | `kiro.enabled` | `true` | 关闭后 Kiro 账号仍在列表里但不参与选号，面板不提供 Kiro 添加入口 |
 | `kiro.endpoint` | `auto` | `auto` / `kiro` / `codewhisperer` / `amazonq`（指定者优先，其余作回退） |
 | `kiro.proxy_url` | 空 | Kiro 出站代理（`http://` / `https://` / `socks5://`，带端口）；空 = 跟随 `HTTPS_PROXY` |
-| `kiro.proxy_pool` | 空 | Kiro 代理池（地址列表，格式同上）：没有自己代理的账号按账号稳定分配到其中一个，连不上时顺延；优先于 `proxy_url`。改动需重启 |
+| `kiro.proxy_pool` | 空 | 写死在配置里的代理池成员（地址列表，格式同上，面板里只读）；日常建议直接在面板「Kiro 代理池」页增删，不用改配置、不用重启。没有自己代理的账号按账号稳定分配到池里的一个，连不上时顺延；优先于 `proxy_url`。改动需重启 |
 | `kiro.kiro_version` | 空 | 出站 User-Agent 里的 Kiro IDE 版本；空 = 内置默认（`1.3.11`） |
 | `kiro.header_timeout_seconds` | `120` | 推理请求等待响应头上限 |
 | `pool.strategy.kiro` / `pool.account_order.kiro` | `weighted_random` / 空 | Kiro 选号策略与账号顺序；热生效 |

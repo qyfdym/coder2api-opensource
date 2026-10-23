@@ -25,7 +25,16 @@ func buildKiro(cfg *Config) *kiroacct.Service {
 		Endpoint:      cfg.Kiro.Endpoint,
 		KiroVersion:   cfg.Kiro.KiroVersion,
 	})
-	return &kiroacct.Service{Client: client, AuthDir: cfg.AuthDir}
+	// 面板托管的代理池：与 state.json 同目录，启动时载入、热生效。
+	proxies, err := kiroacct.OpenProxyStore(stateSibling(cfg.StateFile, "kiro-proxies.json"))
+	if err != nil {
+		log.Printf("WARN: [kiro] 代理池: %v", err)
+	}
+	client.SetManagedProxies(proxies.EnabledURLs())
+	if n := len(proxies.EnabledURLs()); n > 0 {
+		log.Printf("[kiro] 面板代理池: %d 个已启用", n)
+	}
+	return &kiroacct.Service{Client: client, AuthDir: cfg.AuthDir, Proxies: proxies}
 }
 
 // kiroOps 把 kiroacct.Service 适配成调度器的 KiroOps（调度器不直接依赖 Kiro 协议包）。

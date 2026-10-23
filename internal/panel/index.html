@@ -364,6 +364,18 @@ label.fld > .hint { display: block; font-size: 11.5px; color: var(--ink-3); marg
   border: 1px solid var(--line); border-radius: 7px; padding: 8px 11px;
 }
 #krImportText:focus { outline: none; border-color: var(--accent); }
+/* Kiro 代理池页：粘贴框沿用凭证导入框的样子；添加行、测试结果行。 */
+#kpText {
+  display: block; width: 100%; min-height: 112px; resize: vertical; margin-bottom: 8px;
+  font: 12px/1.6 var(--mono); color: var(--ink); background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 7px; padding: 8px 11px;
+}
+#kpText:focus { outline: none; border-color: var(--accent); }
+.kp-add { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; font-size: 12.5px; color: var(--ink-2); }
+.kp-add label { display: inline-flex; align-items: center; gap: 6px; }
+.kp-add .hint { font-size: 11.5px; color: var(--ink-3); }
+.kp-add .grow { flex: 1; }
+#view-kiroproxies .acc .sub { margin-top: 3px; font-size: 11.5px; color: var(--ink-3); overflow-wrap: anywhere; }
 .kr-res { margin-top: 8px; font-size: 12px; color: var(--ink-3); line-height: 1.7; max-height: 160px; overflow: auto; }
 .kr-res div { overflow-wrap: anywhere; }
 #krPortalCallback { display: block; width: 100%; resize: vertical; margin-bottom: 4px;
@@ -783,6 +795,9 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
       <li><a href="#models" data-view="models">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 1.8 14 5v6L8 14.2 2 11V5z"/><path d="M2 5l6 3.2L14 5M8 8.2v6"/></svg>
         模型与档位</a></li>
+      <li id="navKiroProxies"><a href="#kiroproxies" data-view="kiroproxies">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 1.8 3 3.8 3 6s-1 4.2-3 6c-2-1.8-3-3.8-3-6s1-4.2 3-6z"/></svg>
+        Kiro 代理池</a></li>
       <li><a href="#config" data-view="config">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.6v1.9M8 12.5v1.9M1.6 8h1.9M12.5 8h1.9M3.5 3.5l1.3 1.3M11.2 11.2l1.3 1.3M12.5 3.5l-1.3 1.3M4.8 11.2l-1.3 1.3"/></svg>
         配置</a></li>
@@ -1025,6 +1040,51 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
         <table class="acc md">
           <thead><tr><th class="mark" aria-hidden="true"></th><th>模型</th><th>积分倍率</th><th>默认档</th><th>支持的思考档位</th><th>上下文长度</th><th>最大输出</th></tr></thead>
           <tbody id="mdBody"></tbody>
+        </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Kiro 代理池 -->
+    <section class="view" id="view-kiroproxies" hidden>
+      <div class="box">
+        <header>
+          <h3>Kiro 代理池 <span class="hint">Kiro 只对海外出口 IP 放出 Claude；国内服务器要走海外代理</span></h3>
+          <span class="grow"></span>
+          <span class="note" id="kpNote"></span>
+          <button class="xs" id="kpTestAll">测试全部</button>
+          <button class="xs" id="kpReload">刷新</button>
+        </header>
+        <div class="pad">
+          <textarea id="kpText" spellcheck="false" autocomplete="off"
+            placeholder="每行一个代理，可以直接粘贴多行：&#10;socks5://user:pass@1.2.3.4:1080&#10;http://1.2.3.4:8080&#10;1.2.3.4:8080&#10;user:pass@1.2.3.4:8080&#10;1.2.3.4:8080:user:pass   备注写在地址后面（空格隔开）"></textarea>
+          <div class="kp-add">
+            <label>没写协议的按
+              <select id="kpScheme" class="xs" aria-label="没写协议时的默认协议">
+                <option value="http">HTTP</option>
+                <option value="socks5">SOCKS5</option>
+              </select></label>
+            <span class="hint">添加后立即生效，会自动测试一遍；不用重启，也不影响 WorkBuddy / Qoder</span>
+            <span class="grow"></span>
+            <button class="primary xs" id="kpAdd">添加到代理池</button>
+          </div>
+          <div class="kr-res" id="kpRes"></div>
+        </div>
+        <div class="tbl-wrap">
+        <table class="acc md">
+          <thead><tr><th class="mark" aria-hidden="true"></th><th>代理</th><th>状态</th><th>最近一次测试</th><th>使用中的账号</th><th></th></tr></thead>
+          <tbody id="kpBody"></tbody>
+        </table>
+        </div>
+      </div>
+      <div class="box">
+        <header>
+          <h3>账号当前的出口 <span class="hint">没有单独指定代理的账号，按账号稳定分配到池里的一个代理；它连不上才换下一个</span></h3>
+        </header>
+        <div class="tbl-wrap">
+        <table class="acc md">
+          <thead><tr><th class="mark" aria-hidden="true"></th><th>账号</th><th>出口</th></tr></thead>
+          <tbody id="kpAccBody"></tbody>
         </table>
         </div>
       </div>
@@ -1365,7 +1425,7 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
             <div class="grid2">
               <label class="fld"><span class="lb">出站代理</span>
                 <input name="kiro_proxy_url" placeholder="留空 = 跟随 HTTPS_PROXY 环境变量" autocomplete="off" spellcheck="false">
-                <span class="hint">http:// / https:// / socks5://；需重启。Kiro 需要海外出口 IP 才有 Claude；多个代理用 config.json 的 kiro.proxy_pool，单个账号用账号行的「代理」按钮</span></label>
+                <span class="hint">http:// / https:// / socks5://；需重启。Kiro 需要海外出口 IP 才有 Claude；多个代理请在左侧「Kiro 代理池」页管理，单个账号用账号行的「代理」按钮</span></label>
               <label class="fld"><span class="lb">Kiro IDE 版本（User-Agent）</span>
                 <input name="kiro_version" placeholder="留空 = 内置默认" autocomplete="off" spellcheck="false">
                 <span class="hint">需重启</span></label>

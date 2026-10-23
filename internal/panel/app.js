@@ -367,7 +367,7 @@ let expFetching = false;                       // 到期卡片在途标记（防
 const EXP_FRESH_MS = 2 * 60 * 1000;            // 缓存新鲜窗口：2 分钟内复用
 
 const TITLES = {
-  accounts: '账号池', usage: '用量', packages: '积分构成', taskscenter: '任务中心', models: '模型与档位', config: '配置', logs: '运行日志',
+  accounts: '账号池', usage: '用量', packages: '积分构成', taskscenter: '任务中心', models: '模型与档位', kiroproxies: 'Kiro 代理池', config: '配置', logs: '运行日志',
 };
 function go(v) {
   if (!(v in TITLES)) v = 'accounts';
@@ -376,6 +376,7 @@ function go(v) {
   document.querySelectorAll('.nav a').forEach(a => a.classList.toggle('on', a.dataset.view === v));
   $('ttl').textContent = TITLES[v];
   if (v === 'models' && !$('mdBody').children.length) loadModels();
+  if (v === 'kiroproxies') loadKiroProxies();
   if (v === 'config') loadConfig();
   if (v === 'logs') loadLogs();
   if (v === 'usage') loadUsage();
@@ -618,6 +619,7 @@ async function loadOverview(quiet) {
   try {
     const d = await api('overview');
     overviewData = d;
+    syncKiroNav();
     $('sTotal').textContent = d.total;
     $('sHealthy').textContent = d.healthy;
     $('sCooling').textContent = d.cooling;
@@ -3943,6 +3945,142 @@ async function kiroProxyEdit(uid) {
   const d = await api('kiro/accounts/' + encodeURIComponent(uid) + '/proxy', { method: 'POST', body: JSON.stringify({ proxy_url: v.trim() }) });
   toast('出口已更新：' + (KIRO_PROXY_KIND[d.proxy_kind] || d.proxy_kind || '自动') + (d.proxy ? ' ' + d.proxy : ''), 'ok');
 }
+
+/* ── Kiro 代理池页 ─────────────────────────────────────────────────────
+   池里的代理存在服务端（state.json 同目录的 kiro-proxies.json），增删启停立即生效，不用重启；
+   config.json 里的 kiro.proxy_pool 也列在这里，但只读。地址在服务端已脱敏，前端拿不到账号密码。
+   账号落在哪个代理上由服务端决定（按账号稳定分配，连不上才顺延），这里只展示结果。 */
+let kpData = null, kpTesting = false;
+function syncKiroNav() {
+  const li = $('navKiroProxies');
+  if (li) li.style.display = (!overviewData || overviewData.kiro_enabled !== false) ? '' : 'none';
+}
+function kpMoved(n) {
+  if (n > 0) toast(n + ' 个账号的出口变了，它们的模型目录会按新出口重新获取', 'ok');
+}
+function kpTestHTML(t) {
+  if (!t) return '<span class="tag mute">未测试</span>';
+  const when = new Date(t.at * 1000).toLocaleTimeString();
+  if (!t.ok) return '<span class="tag bad">失败</span><div class="sub">' + esc(t.error || '连不上') + ' · ' + esc(when) + '</div>';
+  const cn = t.country === 'CN';
+  const geo = t.country ? ' <span class="tag ' + (cn ? 'bad' : 'ok') + '" title="出口 IP 所在国家">' + esc(t.country) + (cn ? ' · 国内出口没有 Claude' : '') + '</span>' : '';
+  const info = [t.ip, t.org, t.latency_ms + 'ms', when].filter(Boolean).map(esc).join(' · ');
+  return '<span class="tag ok">已连通</span>' + geo + '<div class="sub">' + info + '</div>';
+}
+function kpRowHTML(r) {
+  const cfg = r.source === 'config';
+  let st = '<span class="tag ok">已启用</span>';
+  if (!r.enabled) st = '<span class="tag mute">已停用</span>';
+  else if (r.down) st = '<span class="tag bad">连不上</span><div class="sub">最近连续失败，暂时被跳过</div>';
+  const nm = '<div class="who"><div class="nm"><span class="mid">' + esc(r.proxy) + '</span>' +
+    (r.auth ? '<span class="realm-tag" title="地址带账号密码">认证</span>' : '') +
+    (cfg ? '<span class="realm-tag" title="来自 config.json 的 kiro.proxy_pool，这里只读">配置</span>' : '') + '</div>' +
+    (r.note ? '<div class="id">' + esc(r.note) + '</div>' : '') + '</div>';
+  const id = esc(r.id);
+  let acts = '<button class="xs" data-a="test" data-id="' + id + '">测试</button>';
+  if (!cfg) {
+    acts += '<button class="xs" data-a="toggle" data-id="' + id + '" data-on="' + (r.enabled ? '0' : '1') + '">' + (r.enabled ? '停用' : '启用') + '</button>' +
+      '<button class="xs danger" data-a="remove" data-id="' + id + '">删除</button>';
+  }
+  return '<tr class="' + (!r.enabled ? 'off' : (r.down ? 'cool' : '')) + '"><td class="mark"><i></i></td><td>' + nm + '</td><td>' + st + '</td><td>' +
+    kpTestHTML(r.test) + '</td><td>' + (r.accounts ? r.accounts + ' 个' : '—') + '</td><td class="c-acts"><div class="acts">' + acts + '</div></td></tr>';
+}
+function kpAccHTML(a) {
+  const name = a.nickname || a.uid;
+  let out;
+  if (a.kind === 'none') out = '<span class="tag warn">没走代理</span><div class="sub">用的是服务器自己的出口</div>';
+  else if (a.kind === 'direct') out = '<span class="tag mute">直连</span><div class="sub">这个账号被设置为不走代理</div>';
+  else out = '<span class="tag mute">' + esc(KIRO_PROXY_KIND[a.kind] || a.kind) + '</span> ' + esc(a.proxy || '') +
+    (a.down ? ' <span class="tag bad">连不上</span>' : '');
+  return '<tr><td class="mark"><i></i></td><td><div class="who"><div class="nm"><span class="mid">' + esc(name) + '</span></div><div class="id">' + esc(a.uid) + '</div></div></td><td>' + out + '</td></tr>';
+}
+function kpRender(d) {
+  kpData = d;
+  const rows = d.proxies || [];
+  const live = rows.filter(r => r.active).length;
+  $('kpNote').textContent = rows.length
+    ? live + ' 个生效 / 共 ' + rows.length + ' 个（上限 ' + d.max + '）'
+    : '池是空的：Kiro 现在走服务器自己的出口（或 kiro.proxy_url / HTTPS_PROXY）';
+  $('kpBody').innerHTML = rows.length ? rows.map(kpRowHTML).join('')
+    : '<tr><td colspan="6"><div class="empty"><div class="big">还没有代理</div>在上面粘贴代理地址后点「添加到代理池」</div></td></tr>';
+  const accts = d.accounts || [];
+  $('kpAccBody').innerHTML = accts.length ? accts.map(kpAccHTML).join('')
+    : '<tr><td colspan="3"><div class="empty">还没有 Kiro 账号</div></td></tr>';
+}
+async function loadKiroProxies() {
+  const tb = $('kpBody');
+  if (!tb.children.length) tb.innerHTML = '<tr><td colspan="6"><div class="empty">加载中…</div></td></tr>';
+  try {
+    kpRender(await api('kiro/proxies'));
+  } catch (e) {
+    tb.innerHTML = '<tr><td colspan="6"><div class="empty">读取失败：' + esc(e.message) + '</div></td></tr>';
+  }
+}
+/* 并发 4 个一组测试；测完统一重新拉一次列表（测试结果存在服务端内存里）。 */
+async function kpTestIds(ids) {
+  if (kpTesting || !ids.length) return;
+  kpTesting = true;
+  const btns = [$('kpTestAll'), $('kpAdd')];
+  btns.forEach(b => { b.disabled = true; });
+  $('kpNote').textContent = '正在测试 ' + ids.length + ' 个代理…';
+  let next = 0;
+  const worker = async () => {
+    while (next < ids.length) {
+      const id = ids[next++];
+      try { await api('kiro/proxies/' + encodeURIComponent(id) + '/test', { method: 'POST' }); }
+      catch (e) { toast('测试失败：' + e.message, 'err'); }
+    }
+  };
+  try {
+    await Promise.all(Array.from({ length: Math.min(4, ids.length) }, worker));
+  } finally {
+    kpTesting = false;
+    btns.forEach(b => { b.disabled = false; });
+    await loadKiroProxies();
+  }
+}
+$('kpReload').onclick = loadKiroProxies;
+$('kpTestAll').onclick = () => kpTestIds(((kpData && kpData.proxies) || []).map(r => r.id));
+$('kpAdd').onclick = async () => {
+  const text = $('kpText').value.trim();
+  if (!text) { toast('先粘贴代理地址', 'err'); return; }
+  const b = $('kpAdd');
+  b.disabled = true;
+  try {
+    const d = await api('kiro/proxies', { method: 'POST', body: JSON.stringify({ text, scheme: $('kpScheme').value }) });
+    const lines = ['已添加 ' + d.added + ' 个' + (d.existing ? '，' + d.existing + ' 个已经在池里' : '')];
+    (d.skipped || []).forEach(s => lines.push('跳过：' + s));
+    $('kpRes').innerHTML = lines.map(l => '<div>' + esc(l) + '</div>').join('');
+    if (!(d.skipped || []).length) $('kpText').value = '';
+    kpMoved(d.moved);
+    await loadKiroProxies();
+    b.disabled = false;
+    await kpTestIds(d.ids || []);
+  } catch (e) {
+    $('kpRes').innerHTML = '<div style="color:var(--bad)">' + esc(e.message) + '</div>';
+  } finally {
+    b.disabled = false;
+  }
+};
+$('kpBody').onclick = async e => {
+  const b = e.target.closest('button[data-a]');
+  if (!b) return;
+  const id = b.dataset.id, base = 'kiro/proxies/' + encodeURIComponent(id);
+  try {
+    if (b.dataset.a === 'test') {
+      await kpTestIds([id]);
+    } else if (b.dataset.a === 'toggle') {
+      kpMoved((await api(base + '/enabled', { method: 'POST', body: JSON.stringify({ enabled: b.dataset.on === '1' }) })).moved);
+      await loadKiroProxies();
+    } else if (b.dataset.a === 'remove') {
+      if (!confirm('从代理池删除这个代理？\n\n正在用它的账号会自动换到池里的其它代理（池里没有别的代理时回到默认出口）。')) return;
+      kpMoved((await api(base + '/remove', { method: 'POST' })).moved);
+      await loadKiroProxies();
+    }
+  } catch (er) {
+    toast(er.message, 'err');
+  }
+};
 
 /* ── Kiro 超额开关 ─────────────────────────────────────────────────────
    超额 = 额度用完后上游继续放行、超出部分按量计费。打开会产生真实费用，所以先读出当前状态

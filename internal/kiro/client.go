@@ -22,8 +22,8 @@ type Options struct {
 	HeaderTimeout time.Duration
 	// ProxyURL 出站代理（http:// / socks5://）；空 = 跟随环境变量 HTTPS_PROXY。
 	ProxyURL string
-	// ProxyPool 代理池：非空时没有自己代理的账号按账号稳定分配到池里的一个成员，连不上时顺延
-	// （选择规则见 proxy.go）；优先于 ProxyURL。
+	// ProxyPool 代理池（配置文件里的成员）：非空时没有自己代理的账号按账号稳定分配到池里的一个成员，
+	// 连不上时顺延（选择规则见 proxy.go）；优先于 ProxyURL。面板里管理的成员见 SetManagedProxies。
 	ProxyPool []string
 	// Endpoint 推理入口偏好：auto（缺省，Kiro IDE → CodeWhisperer → AmazonQ 依次回退）/
 	// kiro / codewhisperer / amazonq（指定者优先，其余作回退）。
@@ -48,8 +48,11 @@ type Options struct {
 type Client struct {
 	opts Options
 
-	// pool 规范化后的代理池；health 各代理的连通状态；sets 按出口缓存的 HTTP 客户端（见 proxy.go）。
+	// pool 配置文件里的代理池（规范化、去重，装配后不变）；all = pool + 面板托管成员（热更新，poolMu 保护）；
+	// health 各代理的连通状态；sets 按出口缓存的 HTTP 客户端（见 proxy.go）。
 	pool   []string
+	poolMu sync.RWMutex
+	all    []string
 	health *proxyHealth
 	setsMu sync.Mutex
 	sets   map[string]*httpSet
@@ -124,6 +127,7 @@ func NewClient(opts Options) *Client {
 			c.pool = append(c.pool, n)
 		}
 	}
+	c.all = c.pool
 	return c
 }
 

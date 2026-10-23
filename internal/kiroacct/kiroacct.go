@@ -30,6 +30,8 @@ type Service struct {
 	AuthDir string
 	// LocalCacheDir 读取本机 Kiro IDE 登录缓存的目录；空 = ~/.aws/sso/cache。仅测试覆盖用。
 	LocalCacheDir string
+	// Proxies 面板托管的代理池存储（装配期设置；nil = 不提供面板管理，只用 config 里的 proxy_pool）。
+	Proxies *ProxyStore
 
 	// ChatFunc 推理入口覆盖（测试注入假上游用）；nil = Client.ChatStream。
 	ChatFunc func(ctx context.Context, cred kiro.Cred, body []byte) (io.ReadCloser, *kiro.Error)

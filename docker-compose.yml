@@ -23,19 +23,3 @@ services:
       # 但前提是它能以文件形式写入 —— 挂载目录会挡住这条路径）。
       # 不挂 :ro：面板「配置」页需要写回此文件（保存后热生效）。
       - ./config.json:/app/config.json
-
-  # Kiro 出口代理（可选）：Kiro 只对海外出口 IP 放出 Claude，国内服务器让 Kiro 的请求走海外节点。
-  # 只有 config.json 里 kiro.proxy_url 指向它的 Kiro 请求会经过这里；WorkBuddy / Qoder 不受影响。
-  # 启用：先按 deploy/mihomo/config.example.yaml 准备 ./mihomo/config.yaml（填机场订阅），再
-  #   docker compose --profile proxy up -d
-  # 不发布端口：只有同一 compose 网络里的 coder2api 能连 http://mihomo:7890。
-  # 镜像拉不下来时，把 image 前缀换成你服务器能用的镜像加速地址。
-  mihomo:
-    image: metacubex/mihomo:latest
-    container_name: coder2api-mihomo
-    profiles: ["proxy"]
-    restart: unless-stopped
-    environment:
-      - TZ=Asia/Shanghai
-    volumes:
-      - ./mihomo:/root/.config/mihomo

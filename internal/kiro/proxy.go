@@ -17,6 +17,7 @@ package kiro
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -74,6 +75,12 @@ func MaskProxyURL(s string) string {
 		return "（无效地址）"
 	}
 	return u.Scheme + "://" + u.Host
+}
+
+// ProxyID 代理地址的短标识（面板里增删改查、测试用；同一个地址永远得到同一个 ID）。
+func ProxyID(normalizedURL string) string {
+	sum := sha256.Sum256([]byte(normalizedURL))
+	return hex.EncodeToString(sum[:5])
 }
 
 // ProxyInfo 账号当前实际使用的出口，供面板展示。
@@ -194,10 +201,11 @@ func (c *Client) proxyFor(cred Cred) string {
 	if p := strings.TrimSpace(cred.ProxyURL); p != "" {
 		return p
 	}
-	if len(c.pool) == 0 {
+	members := c.proxyMembers()
+	if len(members) == 0 {
 		return ""
 	}
-	order := poolOrder(c.pool, credKey(cred))
+	order := poolOrder(members, credKey(cred))
 	for _, p := range order {
 		if c.health.healthy(p) {
 			return p
@@ -205,6 +213,64 @@ func (c *Client) proxyFor(cred Cred) string {
 	}
 	return order[0]
 }
+
+// proxyMembers 当前生效的代理池成员（配置 + 面板托管）。返回的切片只读：更新时整体替换，不原地修改。
+func (c *Client) proxyMembers() []string {
+	c.poolMu.RLock()
+	defer c.poolMu.RUnlock()
+	return c.all
+}
+
+// SetManagedProxies 设置面板托管的代理池成员，与配置文件里的 proxy_pool 合并去重（配置里的在前）。
+// 无效地址与 direct 被忽略。热生效：之后的请求按新池选出口，已在途的请求不受影响。
+func (c *Client) SetManagedProxies(urls []string) {
+	merged := append([]string(nil), c.pool...)
+	seen := make(map[string]bool, len(merged)+len(urls))
+	for _, p := range merged {
+		seen[p] = true
+	}
+	for _, raw := range urls {
+		n, err := NormalizeProxyURL(raw)
+		if err != nil || n == "" || strings.EqualFold(n, ProxyDirect) || seen[n] {
+			continue
+		}
+		seen[n] = true
+		merged = append(merged, n)
+	}
+	c.poolMu.Lock()
+	c.all = merged
+	c.poolMu.Unlock()
+}
+
+// PoolMember 代理池里的一个成员，供面板展示。
+type PoolMember struct {
+	// URL 完整地址（可能带账号密码，只在服务端内部使用，不得下发给前端）。
+	URL string
+	// Label 脱敏地址。
+	Label string
+	// Config 来自配置文件（面板里只读）；false = 面板托管。
+	Config bool
+	// Down 最近连不上，暂时被跳过。
+	Down bool
+}
+
+// PoolMembers 当前生效的代理池成员（顺序：配置在前，其后是面板托管的）。
+func (c *Client) PoolMembers() []PoolMember {
+	fromConfig := make(map[string]bool, len(c.pool))
+	for _, p := range c.pool {
+		fromConfig[p] = true
+	}
+	members := c.proxyMembers()
+	out := make([]PoolMember, 0, len(members))
+	for _, p := range members {
+		out = append(out, PoolMember{URL: p, Label: MaskProxyURL(p), Config: fromConfig[p], Down: !c.health.healthy(p)})
+	}
+	return out
+}
+
+// EgressKey 账号当前实际使用的出口原值（"" = 平台默认，"direct" = 直连，其余是代理地址，可能带密码）。
+// 只用来比较「出口有没有变」，不得展示或记日志。
+func (c *Client) EgressKey(cred Cred) string { return c.proxyFor(cred) }
 
 // ProxyInfo 账号当前实际使用的出口（脱敏），供面板展示。
 func (c *Client) ProxyInfo(cred Cred) ProxyInfo {

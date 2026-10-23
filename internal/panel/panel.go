@@ -117,6 +117,8 @@ type Panel struct {
 	krLoginMu sync.Mutex
 	krLogins  map[string]*kiro.LoginSession
 	krPortals map[string]*krPortal
+	// krProxyTests 代理池页最近一次测试结果（代理 ID → kiro.ProxyTestResult），只在内存里。
+	krProxyTests sync.Map
 }
 
 // tryLockAccount 尝试锁定账号的任务执行；已在执行返回 false。
@@ -244,6 +246,11 @@ func (p *Panel) routes() {
 	p.mux.HandleFunc("GET /panel/api/kiro/accounts/{uid}/overage", p.withAuth(p.kiroOverageGet))
 	p.mux.HandleFunc("POST /panel/api/kiro/accounts/{uid}/overage", p.withAuth(p.kiroOverageSet))
 	p.mux.HandleFunc("POST /panel/api/kiro/accounts/{uid}/proxy", p.withAuth(p.kiroProxySet))
+	p.mux.HandleFunc("GET /panel/api/kiro/proxies", p.withAuth(p.kiroProxiesList))
+	p.mux.HandleFunc("POST /panel/api/kiro/proxies", p.withAuth(p.kiroProxiesAdd))
+	p.mux.HandleFunc("POST /panel/api/kiro/proxies/{id}/enabled", p.withAuth(p.kiroProxiesEnable))
+	p.mux.HandleFunc("POST /panel/api/kiro/proxies/{id}/remove", p.withAuth(p.kiroProxiesRemove))
+	p.mux.HandleFunc("POST /panel/api/kiro/proxies/{id}/test", p.withAuth(p.kiroProxiesTest))
 }
 
 // ServeHTTP 统一入口：先写安全响应头再分发，保证页面、静态资源、API
