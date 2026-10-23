@@ -67,6 +67,36 @@ func (c *Client) CachedModels() []Model {
 	return FallbackModels()
 }
 
+// noClaudeHintEvery 同一个账号「目录里没有 Claude」的提示最多隔这么久出现一次。
+const noClaudeHintEvery = 30 * time.Minute
+
+// hintNoClaude 目录里一个 Claude 都没有时打一条提示。Kiro 按出口 IP 的地区放出模型（国内 IP 没有
+// Claude），而「代理没生效 / 节点不对」时网关不会报任何错，只是模型少了一大半——这条日志把当前
+// 出口摆出来，省得对着缺失的模型猜。账号套餐本身不含 Claude 也会触发，所以措辞是「可能」。
+func (c *Client) hintNoClaude(cred Cred, list []Model) {
+	for _, m := range list {
+		if strings.HasPrefix(strings.ToLower(m.ID), "claude") {
+			return
+		}
+	}
+	now := time.Now()
+	if last, ok := c.noClaudeHinted.Load(cred.UID); ok && now.Sub(last.(time.Time)) < noClaudeHintEvery {
+		return
+	}
+	c.noClaudeHinted.Store(cred.UID, now)
+	info := c.ProxyInfo(cred)
+	egress := "没有走代理（服务器自己的出口）"
+	switch info.Kind {
+	case "account", "pool", "default":
+		egress = "走代理 " + info.Label
+	case "direct":
+		egress = "显式直连"
+	}
+	c.logf("%s: 模型目录共 %d 个，里面没有 Claude。Kiro 按出口 IP 的地区放出模型，国内 IP 拿不到 Claude；当前出口：%s。"+
+		"可能是代理没生效或节点不在海外（检查 mihomo 日志里 using KIRO[...] 用的是哪个节点），也可能是账号套餐本身不含 Claude",
+		cred.label(), len(list), egress)
+}
+
 // InvalidateCatalog 丢弃该账号缓存的目录并重算全池目录：账号换了出口 IP（目录按出口地区过滤）后，
 // 之前拉到的目录不再代表它现在能用的模型，下次访问时重拉。
 func (c *Client) InvalidateCatalog(uid string) {
@@ -116,6 +146,7 @@ func (c *Client) RefreshModels(ctx context.Context, cred Cred) ([]Model, *Error)
 		return nil, &Error{Kind: KindServer, Msg: "ListAvailableModels returned no models"}
 	}
 	sort.SliceStable(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+	c.hintNoClaude(cred, list)
 	c.models.mu.Lock()
 	if c.models.byUID == nil {
 		c.models.byUID = map[string]catalogEntry{}

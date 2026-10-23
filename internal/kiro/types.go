@@ -182,6 +182,9 @@ func (e *Error) Error() string {
 	if e.Msg != "" {
 		s += ": " + e.Msg
 	}
+	if e.Kind == KindTransport && e.Body != "" {
+		s += "（原因：" + truncate(e.Body, 200) + "）"
+	}
 	return s
 }
 

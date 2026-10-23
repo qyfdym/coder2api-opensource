@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -172,9 +173,16 @@ func errorCode(detail string) string {
 	return ""
 }
 
-// transportError 传输层失败的信封。
+// urlCredentials 错误文本里可能出现的 scheme://user:pass@host 形式的凭据。
+var urlCredentials = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://)[^/\s@]+@`)
+
+// scrubCredentials 去掉错误文本里 URL 带的用户名密码（代理地址可能带，不能进日志 / 面板 / 响应）。
+func scrubCredentials(s string) string { return urlCredentials.ReplaceAllString(s, "${1}***@") }
+
+// transportError 传输层失败的信封。原因（拨号被拒绝 / 代理隧道失败 / 超时……）保留在 Body 里，
+// Error() 会带上它——只写「连接 Kiro 上游失败」的话，代理没起来、节点不通、DNS 失败看起来一模一样。
 func transportError(err error) *Error {
-	return &Error{Kind: KindTransport, Msg: friendlyMessage(KindTransport), Body: truncate(err.Error(), 300)}
+	return &Error{Kind: KindTransport, Msg: friendlyMessage(KindTransport), Body: scrubCredentials(truncate(err.Error(), 300))}
 }
 
 // asError 把任意错误转成 *Error（已经是 *Error 的原样返回）。

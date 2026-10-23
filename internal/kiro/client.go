@@ -58,6 +58,8 @@ type Client struct {
 
 	// profileSuppress Builder ID 账号的 ListAvailableProfiles 不受支持（403）：记下来 24h 内不再查。
 	profileSuppress sync.Map // uid → time.Time
+	// noClaudeHinted 「目录里没有 Claude」提示的上次时间（限频）。
+	noClaudeHinted sync.Map // uid → time.Time
 
 	// sleep 轮询等待（nil = 真实等待；测试注入空实现，免得单测真等几秒）。
 	sleep func(ctx context.Context, d time.Duration) error

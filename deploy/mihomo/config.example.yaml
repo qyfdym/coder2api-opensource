@@ -1,4 +1,5 @@
-# Kiro 出口代理（mihomo / Clash Meta）。
+# Kiro 出口代理（mihomo / Clash Meta）—— Docker Compose 版（docker-compose.yml 里的 mihomo 服务）。
+# 不用 Docker 的话用同目录的 config.host.example.yaml。
 #
 # 用途：Kiro 只对海外出口 IP 放出 Claude，国内服务器要让 Kiro 的请求走海外节点。
 # 只有网关里的 Kiro 请求会经过它（config.json 里 kiro.proxy_url = http://mihomo:7890）；
@@ -6,11 +7,18 @@
 #
 # 用法（在服务器项目目录）：
 #   mkdir -p mihomo && cp deploy/mihomo/config.example.yaml mihomo/config.yaml
-#   编辑 mihomo/config.yaml，把下面的订阅地址换成你的
+#   编辑 mihomo/config.yaml（见下面「必看」）
 #   docker compose --profile proxy up -d
-#   docker compose logs -f mihomo        # 看到节点加载成功即可
+#   docker compose logs -f mihomo
 #
 # 这个文件里会有你的订阅地址，属于密钥：不要提交到版本库（/mihomo/ 已在 .gitignore 里）。
+#
+# 【必看】要改两处：
+#   1) proxy-providers 里的 url：换成你的机场订阅地址；
+#   2) KIRO 组的 filter：写成能匹配你想用的节点名的正则（节点名看订阅 / Clash Verge 里的列表）。
+#      最稳的写法是填你在 Clash Verge 里确认能用的那个节点的完整名字，例如 "^美国 01 IEPL$"。
+# 日志里每条连接都会写 using KIRO[实际用的节点名]；看到 using KIRO[kiro-guard]
+# 说明 filter 没匹配到任何节点（见下面的「保险丝」）。
 
 mixed-port: 7890      # http + socks5 混合端口
 allow-lan: true       # 让同一个 compose 网络里的 coder2api 容器能连上；端口不对宿主机发布，外部访问不到
@@ -18,6 +26,16 @@ bind-address: "*"
 mode: rule
 log-level: info
 ipv6: false
+
+proxies:
+  # 保险丝：永远连不上的假节点。
+  # 没有它的话，KIRO 组一旦过滤不到任何节点（订阅没拉下来 / filter 和节点名对不上），
+  # mihomo 会悄悄把空组当成「直连」——Kiro 请求就从服务器自己的国内 IP 出去，
+  # 结果是模型缺一大半，而且不报任何错。有它在，这种情况会变成「请求失败」，日志里一眼能看出来。
+  - name: kiro-guard
+    type: http
+    server: 127.0.0.1
+    port: 1
 
 proxy-providers:
   airport:
@@ -29,19 +47,20 @@ proxy-providers:
       enable: true
       url: https://www.gstatic.com/generate_204
       interval: 300
-      lazy: true
 
 proxy-groups:
-  # fallback：一直用过滤后排第一的可用节点，它不通了才换下一个，恢复后换回来。
+  # fallback：按顺序用第一个「健康检查通过」的节点，它不通了才换下一个，恢复后换回来。
+  # 保险丝排在最前，但它永远检查不通，所以只会在真节点一个都没有时才被选中。
   # 比自动测速切换稳定得多——同一个 Kiro 账号的出口 IP 不会频繁变。
-  # 想彻底钉死一个节点：把 type 改成 select，再在 mihomo 里手动选（或把 filter 写成那个节点的名字）。
   - name: KIRO
     type: fallback
+    proxies: [kiro-guard]
     use: [airport]
-    filter: "(?i)美国|US|United States"
+    # 默认写法：匹配常见的美国节点名。对不上你的节点名就改成具体节点名（见文件开头的说明）。
+    filter: "(?i)美国|美國|洛杉矶|圣何塞|硅谷|西雅图|芝加哥|纽约|达拉斯|凤凰城|(^|[^a-z])(us|usa)([^a-z]|$)|united states|america|los angeles|san jose|seattle|chicago|new york|dallas|🇺🇸"
     url: https://www.gstatic.com/generate_204
-    interval: 300
-    lazy: true
+    interval: 60
+    lazy: false
 
 rules:
   - MATCH,KIRO
