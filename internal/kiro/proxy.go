@@ -176,11 +176,12 @@ func (t healthRT) RoundTrip(r *http.Request) (*http.Response, error) {
 	switch {
 	case err == nil:
 		t.h.success(t.key)
-	// 调用方主动取消（用户关了页面 / 客户端断开）不算代理的错。超时要算：Client.Timeout 到期时
-	// net/http 有时报 request canceled while waiting for connection，有时只有 context deadline exceeded，
-	// 两种写法都是「代理收下了连接却一直没把隧道接通」。
+	// 调用方主动取消（用户关了页面 / 客户端断开）不算代理的错。
 	case errors.Is(r.Context().Err(), context.Canceled):
-	case isProxyFault(err), !connected.Load() && errors.Is(err, context.DeadlineExceeded):
+	// 连接都没拿到就失败，都是出口的问题：拨号失败、代理拒绝 CONNECT（net/http 只给一个 "Forbidden"）、
+	// 代理收下连接却直接关掉（机场节点不通时内核就是这样，net/http 只给一个 "EOF"）、一直没接通而超时
+	// （net/http 有时报 request canceled while waiting for connection，有时只有 context deadline exceeded）。
+	case isProxyFault(err), !connected.Load():
 		t.h.failure(t.key)
 	}
 	return resp, err
@@ -311,6 +312,22 @@ func (c *Client) PoolMembers() []PoolMember {
 		out = append(out, PoolMember{URL: p, Label: MaskProxyURL(p), Config: fromConfig[p], Down: !c.health.healthy(p)})
 	}
 	return out
+}
+
+// PickProxy 按 key 在代理池里稳定选一个出口（与账号分配同一套规则：rendezvous 排序，取第一个健康的，
+// 全挂时仍取排第一的）。池是空的返回 ""。供 WorkBuddy / Qoder 的平台级出口使用（key 如 "platform:qoder"）。
+func (c *Client) PickProxy(key string) string {
+	members := c.proxyMembers()
+	if len(members) == 0 {
+		return ""
+	}
+	order := poolOrder(members, key)
+	for _, p := range order {
+		if c.health.healthy(p) {
+			return p
+		}
+	}
+	return order[0]
 }
 
 // EgressKey 账号当前实际使用的出口原值（"" = 平台默认，"direct" = 直连，其余是代理地址，可能带密码）。

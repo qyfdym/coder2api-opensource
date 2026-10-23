@@ -9,8 +9,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -50,12 +53,58 @@ func (c *Client) TestProxy(ctx context.Context, raw string) ProxyTestResult {
 	return c.probe(ctx, n)
 }
 
+// ProbePool 把代理池里的每个成员探测一遍（只测能不能连到 Kiro 入口，不查地区），结果计入连通状态。
+// 只靠真实请求更新连通状态的话，只有 WorkBuddy / Qoder 在用、或者长时间没人用的代理挂了也没人知道；
+// 后台定时跑一遍，选出口时就能绕开它。并发 4 个。
+func (c *Client) ProbePool(ctx context.Context) {
+	if !c.probing.CompareAndSwap(false, true) { // 上一轮还没跑完：不叠加
+		return
+	}
+	defer c.probing.Store(false)
+	members := c.proxyMembers()
+	sem := make(chan struct{}, 4)
+	var wg sync.WaitGroup
+	for _, m := range members {
+		select {
+		case <-ctx.Done():
+			wg.Wait()
+			return
+		case sem <- struct{}{}:
+		}
+		wg.Add(1)
+		go func(p string) {
+			defer func() { <-sem; wg.Done() }()
+			c.probeOnce(ctx, p, false)
+		}(m)
+	}
+	wg.Wait()
+}
+
+// RunPoolProbe 每隔 every 探测一遍代理池，直到 ctx 结束。
+func (c *Client) RunPoolProbe(ctx context.Context, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			c.ProbePool(ctx)
+		}
+	}
+}
+
 // TestDirect 不经任何代理，测试服务器自己的出口：能不能连到 Kiro 入口、出口 IP 在哪个国家。
 // 登录 / 导入账号失败时用它判断是不是服务器本身连不上 AWS。
 func (c *Client) TestDirect(ctx context.Context) ProxyTestResult { return c.probe(ctx, ProxyDirect) }
 
-// probe 经指定出口（规范化后的代理地址，或 ProxyDirect）探测一次。
+// probe 经指定出口（规范化后的代理地址，或 ProxyDirect）探测一次，并查出口地区。
 func (c *Client) probe(ctx context.Context, key string) ProxyTestResult {
+	return c.probeOnce(ctx, key, true)
+}
+
+// probeOnce 经指定出口探测一次；geo=false 时不查出口地区。代理（非直连）的结果计入连通状态。
+func (c *Client) probeOnce(ctx context.Context, key string, geo bool) ProxyTestResult {
 	res := ProxyTestResult{At: time.Now().Unix()}
 	n := key
 	rt := c.opts.Transport
@@ -77,16 +126,28 @@ func (c *Client) probe(ctx context.Context, key string) ProxyTestResult {
 		res.Error = err.Error()
 		return res
 	}
+	// 与真实请求（healthRT）同一个口径：连接都没拿到就失败才算代理的错；连上之后上游慢不算。
+	var connected atomic.Bool
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
+		GotConn: func(httptrace.GotConnInfo) { connected.Store(true) },
+	}))
 	start := time.Now()
 	resp, err := hc.Do(req)
+	isProxy := !strings.EqualFold(n, ProxyDirect)
 	if err != nil {
 		res.Error = proxyErrText(err, n)
+		if isProxy && !connected.Load() && !errors.Is(ctx.Err(), context.Canceled) {
+			c.health.failure(n)
+		}
 		return res
 	}
 	_ = resp.Body.Close()
 	res.OK, res.LatencyMS = true, time.Since(start).Milliseconds()
-	if !strings.EqualFold(n, ProxyDirect) {
+	if isProxy {
 		c.health.success(n)
+	}
+	if !geo {
+		return res
 	}
 
 	gctx, gcancel := context.WithTimeout(ctx, proxyGeoTimeout)

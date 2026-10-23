@@ -18,9 +18,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/linguo2625469/workbuddy2api-panel/internal/auth"
+	"github.com/linguo2625469/workbuddy2api-panel/internal/egress"
 )
 
 const (
@@ -49,7 +51,29 @@ func loginEndpoints(realm string) (state, token, account, origin string) {
 }
 
 // loginHTTP 设备授权专用 client：短超时、无 cookie（每请求携带 state，无会话态）。
-var loginHTTP = &http.Client{Timeout: 30 * time.Second}
+// 代理与推理同一个开关（面板「代理池」页的 WorkBuddy 出口）；拨号沿用 http.DefaultTransport
+// （main 配了 dns_servers 时会替换它的 DialContext）。
+var loginHTTP = &http.Client{Timeout: 30 * time.Second, Transport: workbuddyLoginRT{}}
+
+type workbuddyLoginRT struct{}
+
+var (
+	workbuddyLoginOnce sync.Once
+	workbuddyLoginTr   http.RoundTripper
+)
+
+func (workbuddyLoginRT) RoundTrip(r *http.Request) (*http.Response, error) {
+	workbuddyLoginOnce.Do(func() {
+		workbuddyLoginTr = http.DefaultTransport
+		if t, ok := http.DefaultTransport.(*http.Transport); ok {
+			c := t.Clone()
+			c.DialContext = t.DialContext
+			c.Proxy = egress.ProxyFunc(egress.WorkBuddy)
+			workbuddyLoginTr = c
+		}
+	})
+	return workbuddyLoginTr.RoundTrip(r)
+}
 
 func commonHeaders(req *http.Request, origin string) {
 	req.Header.Set("Content-Type", "application/json")

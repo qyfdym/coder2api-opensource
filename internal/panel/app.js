@@ -367,7 +367,7 @@ let expFetching = false;                       // 到期卡片在途标记（防
 const EXP_FRESH_MS = 2 * 60 * 1000;            // 缓存新鲜窗口：2 分钟内复用
 
 const TITLES = {
-  accounts: '账号池', usage: '用量', packages: '积分构成', taskscenter: '任务中心', models: '模型与档位', kiroproxies: 'Kiro 代理池', config: '配置', logs: '运行日志',
+  accounts: '账号池', usage: '用量', packages: '积分构成', taskscenter: '任务中心', models: '模型与档位', kiroproxies: '代理池与订阅', config: '配置', logs: '运行日志',
 };
 function go(v) {
   if (!(v in TITLES)) v = 'accounts';
@@ -3946,7 +3946,7 @@ async function kiroProxyEdit(uid) {
   toast('出口已更新：' + (KIRO_PROXY_KIND[d.proxy_kind] || d.proxy_kind || '自动') + (d.proxy ? ' ' + d.proxy : ''), 'ok');
 }
 
-/* ── Kiro 代理池页 ─────────────────────────────────────────────────────
+/* ── 代理池与订阅页：代理池 ─────────────────────────────────────────────────
    池里的代理存在服务端（state.json 同目录的 kiro-proxies.json），增删启停立即生效，不用重启；
    config.json 里的 kiro.proxy_pool 也列在这里，但只读。地址在服务端已脱敏，前端拿不到账号密码。
    账号落在哪个代理上由服务端决定（按账号稳定分配，连不上才顺延），这里只展示结果。 */
@@ -3982,17 +3982,18 @@ function kpDirectHTML(t) {
   return '<div>服务器直连：已连通，' + esc(t.latency_ms) + 'ms' + (where ? ' · ' + where : '') + ' · ' + esc(when) + '。' + note + '</div>';
 }
 function kpRowHTML(r) {
-  const cfg = r.source === 'config';
+  const cfg = r.source === 'config', sub = r.source === 'sub';
   let st = '<span class="tag ok">已启用</span>';
   if (!r.enabled) st = '<span class="tag mute">已停用</span>';
   else if (r.down) st = '<span class="tag bad">连不上</span><div class="sub">最近连续失败，暂时被跳过</div>';
-  const nm = '<div class="who"><div class="nm"><span class="mid">' + esc(r.proxy) + '</span>' +
-    (r.auth ? '<span class="realm-tag" title="地址带账号密码">认证</span>' : '') +
+  const nm = '<div class="who"><div class="nm"><span class="mid">' + esc(sub ? r.note : r.proxy) + '</span>' +
+    (r.auth && !sub ? '<span class="realm-tag" title="地址带账号密码">认证</span>' : '') +
+    (sub ? '<span class="realm-tag" title="机场订阅里勾选的节点（内核的本机代理口），在上面的订阅节点列表里取消勾选">订阅</span>' : '') +
     (cfg ? '<span class="realm-tag" title="来自 config.json 的 kiro.proxy_pool，这里只读">配置</span>' : '') + '</div>' +
-    (r.note ? '<div class="id">' + esc(r.note) + '</div>' : '') + '</div>';
+    (sub ? '<div class="id">' + esc(r.proxy) + '</div>' : (r.note ? '<div class="id">' + esc(r.note) + '</div>' : '')) + '</div>';
   const id = esc(r.id);
   let acts = '<button class="xs" data-a="test" data-id="' + id + '">测试</button>';
-  if (!cfg) {
+  if (!cfg && !sub) {
     acts += '<button class="xs" data-a="toggle" data-id="' + id + '" data-on="' + (r.enabled ? '0' : '1') + '">' + (r.enabled ? '停用' : '启用') + '</button>' +
       '<button class="xs danger" data-a="remove" data-id="' + id + '">删除</button>';
   }
@@ -4004,9 +4005,27 @@ function kpAccHTML(a) {
   let out;
   if (a.kind === 'none') out = '<span class="tag warn">没走代理</span><div class="sub">用的是服务器自己的出口</div>';
   else if (a.kind === 'direct') out = '<span class="tag mute">直连</span><div class="sub">这个账号被设置为不走代理</div>';
-  else out = '<span class="tag mute">' + esc(KIRO_PROXY_KIND[a.kind] || a.kind) + '</span> ' + esc(a.proxy || '') +
-    (a.down ? ' <span class="tag bad">连不上</span>' : '');
+  else out = '<span class="tag mute">' + esc(KIRO_PROXY_KIND[a.kind] || a.kind) + '</span> ' + esc(a.label || a.proxy || '') +
+    (a.down ? ' <span class="tag bad">连不上</span>' : '') + (a.label ? '<div class="sub">' + esc(a.proxy || '') + '</div>' : '');
   return '<tr><td class="mark"><i></i></td><td><div class="who"><div class="nm"><span class="mid">' + esc(name) + '</span></div><div class="id">' + esc(a.uid) + '</div></div></td><td>' + out + '</td></tr>';
+}
+/* WorkBuddy / Qoder 出口：关闭（跟随服务器网络）/ 自动（代理池里稳定选一个，连不上换）/ 固定池里的某一个。 */
+function kpEgOptions(r, proxies) {
+  const opts = [['', '关闭（跟随服务器网络）'], ['auto', '自动（代理池）']];
+  (proxies || []).filter(p => p.active).forEach(p => opts.push(['pin:' + p.id, '固定：' + (p.source === 'sub' ? p.note : p.proxy)]));
+  const cur = r.mode === 'pin' ? 'pin:' + r.proxy_id : (r.mode || '');
+  if (r.mode === 'pin' && !opts.some(o => o[0] === cur)) opts.push([cur, '固定：（已不在池里）']);
+  return opts.map(o => '<option value="' + esc(o[0]) + '"' + (o[0] === cur ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('');
+}
+function kpEgRowHTML(r, proxies) {
+  let now = '<span class="tag mute">服务器自己的网络</span>';
+  if (r.error) now = '<span class="tag bad">没有可用代理</span><div class="sub">' + esc(r.error) + '</div>';
+  else if (r.current) now = esc(r.current_label || r.current) + (r.current_label ? '<div class="sub">' + esc(r.current) + '</div>' : '');
+  const p = esc(r.platform);
+  return '<tr data-plat="' + p + '"><td class="mark"><i></i></td><td><b>' + esc(r.name) + '</b></td>' +
+    '<td><select class="xs" data-k="mode">' + kpEgOptions(r, proxies) + '</select></td>' +
+    '<td><label title="*.cn、*.tencent.com、*.qq.com 不走代理（国内版上游对海外出口不友好）"><input type="checkbox" data-k="cn"' + (r.direct_cn ? ' checked' : '') + '> 国内域名直连</label></td>' +
+    '<td>' + now + '</td><td class="c-acts"><button class="xs primary" data-a="eg-save" data-plat="' + p + '">保存</button></td></tr>';
 }
 function kpRender(d) {
   kpData = d;
@@ -4021,16 +4040,333 @@ function kpRender(d) {
   const accts = d.accounts || [];
   $('kpAccBody').innerHTML = accts.length ? accts.map(kpAccHTML).join('')
     : '<tr><td colspan="3"><div class="empty">还没有 Kiro 账号</div></td></tr>';
+  const eg = d.platforms || [];
+  $('kpEgBody').innerHTML = eg.length ? eg.map(r => kpEgRowHTML(r, rows)).join('')
+    : '<tr><td colspan="6"><div class="empty">不可用</div></td></tr>';
 }
 async function loadKiroProxies() {
   const tb = $('kpBody');
   if (!tb.children.length) tb.innerHTML = '<tr><td colspan="6"><div class="empty">加载中…</div></td></tr>';
+  loadCore();
   try {
     kpRender(await api('kiro/proxies'));
   } catch (e) {
     tb.innerHTML = '<tr><td colspan="6"><div class="empty">读取失败：' + esc(e.message) + '</div></td></tr>';
   }
 }
+$('kpEgBody').onclick = async e => {
+  const b = e.target.closest('button[data-a="eg-save"]');
+  if (!b) return;
+  const tr = b.closest('tr');
+  const v = tr.querySelector('[data-k="mode"]').value;
+  const body = { platform: b.dataset.plat, mode: v.startsWith('pin:') ? 'pin' : v, proxy_id: v.startsWith('pin:') ? v.slice(4) : '',
+    direct_cn: tr.querySelector('[data-k="cn"]').checked };
+  b.disabled = true;
+  try {
+    await api('kiro/egress', { method: 'POST', body: JSON.stringify(body) });
+    toast((body.mode ? '已打开' : '已关闭') + ' ' + (b.dataset.plat === 'qoder' ? 'Qoder' : 'WorkBuddy') + ' 的出口代理', 'ok');
+    await loadKiroProxies();
+  } catch (er) {
+    toast(er.message, 'err');
+  } finally {
+    b.disabled = false;
+  }
+};
+
+/* ── 机场订阅（网关托管的 mihomo 内核）────────────────────────────────
+   订阅地址只在服务端，页面上只有主机名。内核没装时先给安装入口；勾选的节点变成本机代理口进代理池。 */
+let kcData = null, kcPoll = null, kcNodesSub = '', kcNodesList = [], kcChecked = new Set(), kcPasteTarget = '';
+const kcBytes = n => {
+  n = Number(n || 0);
+  if (n <= 0) return '0';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (n >= 100 || i === 0 ? n.toFixed(0) : n.toFixed(1)) + ' ' + u[i];
+};
+function kcAgo(ts) {
+  if (!ts) return '—';
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - ts));
+  if (s < 60) return '刚刚';
+  if (s < 3600) return Math.floor(s / 60) + ' 分钟前';
+  if (s < 86400) return Math.floor(s / 3600) + ' 小时前';
+  return Math.floor(s / 86400) + ' 天前';
+}
+function kcStatusText(st) {
+  if (!st.installed) return st.install && st.install.running ? '正在下载内核…' : '内核未安装';
+  if (st.running) return '内核运行中 ' + (st.version || '') + ' · ' + st.listeners + ' 个节点代理口';
+  if (st.enabled) return '内核应在运行，但没在跑' + (st.last_error ? '：' + st.last_error : '');
+  return '内核已安装 ' + (st.version || '') + '，未启动';
+}
+function kcSubHTML(s) {
+  const info = s.info;
+  let traffic = '—';
+  if (info && (info.total || info.expire)) {
+    const used = (info.upload || 0) + (info.download || 0);
+    traffic = (info.total ? kcBytes(used) + ' / ' + kcBytes(info.total) : kcBytes(used)) +
+      (info.expire ? '<div class="sub">到期 ' + esc(new Date(info.expire * 1000).toLocaleDateString()) + '</div>' : '');
+    if (info.total && used >= info.total) traffic = '<span class="tag bad">流量用完</span> ' + traffic;
+    if (info.expire && info.expire * 1000 < Date.now()) traffic = '<span class="tag bad">已过期</span> ' + traffic;
+  }
+  let upd = s.refreshing ? '<span class="tag warn">正在更新</span>' : (s.updated_at ? esc(kcAgo(s.updated_at)) : '<span class="tag mute">还没有内容</span>');
+  if (s.via) upd += '<div class="sub">' + esc(s.via) + (s.format ? ' · ' + esc(s.format) : '') + (s.size ? ' · ' + kcBytes(s.size) : '') + '</div>';
+  if (s.has_url) upd += '<div class="sub">每 ' + esc(Math.round(s.effective_interval_min / 60 * 10) / 10) + ' 小时自动更新</div>';
+  if (s.last_error) upd += '<div class="sub" style="color:var(--bad)">' + esc(s.last_error) + '</div>';
+  const id = esc(s.id);
+  const nm = '<div class="who"><div class="nm"><span class="mid">' + esc(s.name) + '</span></div><div class="id">' +
+    esc(s.has_url ? s.host : '手动粘贴的内容') + '</div></div>';
+  const acts = '<button class="xs primary" data-a="nodes" data-id="' + id + '">选节点</button>' +
+    (s.has_url ? '<button class="xs" data-a="refresh" data-id="' + id + '">更新</button>' : '') +
+    '<button class="xs" data-a="paste" data-id="' + id + '">粘贴内容</button>' +
+    '<button class="xs danger" data-a="remove" data-id="' + id + '">删除</button>';
+  return '<tr class="' + (s.last_error && !s.has_content ? 'off' : (s.last_error ? 'cool' : '')) + '"><td class="mark"><i></i></td><td>' + nm +
+    '</td><td>' + traffic + '</td><td>' + upd + '</td><td>' + (s.selected ? s.selected + ' 个' : '—') +
+    '</td><td class="c-acts"><div class="acts">' + acts + '</div></td></tr>';
+}
+function kcRender(d) {
+  kcData = d;
+  const st = d.status;
+  $('kcBox').hidden = false;
+  $('kcNote').textContent = kcStatusText(st);
+  $('kcInstall').hidden = st.installed && !(st.install && st.install.running);
+  $('kcStart').hidden = !st.installed || st.running;
+  $('kcRestart').hidden = !st.running;
+  $('kcStop').hidden = !st.enabled;
+  if (st.mirror && !$('kcMirror').value) $('kcMirror').value = st.mirror;
+  $('kcAsset').textContent = st.asset ? '本机平台 ' + st.platform + '，对应 ' + st.asset.replace('vX.Y.Z', '<版本>') : '';
+  const inst = st.install || {};
+  let ir = '';
+  if (inst.running) ir = inst.stage + (inst.total ? '：' + kcBytes(inst.done) + ' / ' + kcBytes(inst.total) : (inst.done ? '：' + kcBytes(inst.done) : '…'));
+  else if (inst.error) ir = '<span style="color:var(--bad)">下载失败：' + esc(inst.error) + '。可以填一个 GitHub 镜像前缀再试，或在本机下载后上传。</span>';
+  else if (inst.version && inst.at && Date.now() / 1000 - inst.at < 3600) {
+    ir = '已安装 ' + esc(inst.version) + (inst.sha256 ? ' · SHA-256 <code>' + esc(inst.sha256) + '</code> ' +
+      (inst.verified ? '<span class="tag ok">已对照 GitHub 校验</span>'
+        : '<span class="tag warn">未校验</span>（可到 GitHub Releases 页面核对这个值）') : '');
+  }
+  $('kcInstallRes').innerHTML = inst.running ? esc(ir) : ir;
+  $('kcDownload').disabled = !!inst.running;
+  const subs = d.subs || [];
+  $('kcBody').innerHTML = subs.length ? subs.map(kcSubHTML).join('')
+    : '<tr><td colspan="6"><div class="empty"><div class="big">还没有订阅</div>' +
+      (st.installed ? '在上面填订阅地址后点「添加并更新」' : '先安装内核，再添加订阅') + '</div></td></tr>';
+  clearTimeout(kcPoll);
+  if (inst.running || subs.some(s => s.refreshing)) kcPoll = setTimeout(loadCore, 1500);
+}
+async function loadCore() {
+  try {
+    kcRender(await api('proxycore'));
+  } catch (e) {
+    $('kcBox').hidden = true; // 后端没启用（Kiro 关闭）就不显示
+  }
+}
+/* 改动之后同时刷新订阅卡片和代理池（勾选的节点会进 / 出代理池）。 */
+async function kcAfter(d) {
+  if (d && d.moved) kpMoved(d.moved);
+  await loadKiroProxies();
+}
+$('kcDownload').onclick = async () => {
+  try {
+    await api('proxycore/install', { method: 'POST', body: JSON.stringify({ mirror: $('kcMirror').value.trim() }) });
+    loadCore();
+  } catch (e) { toast(e.message, 'err'); }
+};
+$('kcFile').onchange = async () => {
+  const f = $('kcFile').files[0];
+  if (!f) return;
+  $('kcInstallRes').textContent = '正在上传并安装 ' + f.name + '（' + kcBytes(f.size) + '）…';
+  try {
+    const h = {};
+    const k = localStorage.getItem(LS_KEY);
+    if (k) h['Authorization'] = 'Bearer ' + k;
+    const r = await fetch('/panel/api/proxycore/upload', { method: 'POST', headers: h, body: f });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    toast('内核已安装：' + d.version, 'ok');
+    await kcAfter(d);
+  } catch (e) {
+    $('kcInstallRes').innerHTML = '<span style="color:var(--bad)">' + esc(e.message) + '</span>';
+  } finally {
+    $('kcFile').value = '';
+  }
+};
+for (const [btn, act] of [['kcStart', 'start'], ['kcRestart', 'restart'], ['kcStop', 'stop']]) {
+  $(btn).onclick = async () => {
+    if (act === 'stop' && !confirm('停止代理内核？\n\n勾选的订阅节点会退出代理池，用着它们的账号会换到池里的其它代理（池里没有别的代理时回到服务器自己的网络）。')) return;
+    $(btn).disabled = true;
+    try { await kcAfter(await api('proxycore/' + act, { method: 'POST' })); }
+    catch (e) { toast(e.message, 'err'); loadCore(); }
+    finally { $(btn).disabled = false; }
+  };
+}
+$('kcLogsBtn').onclick = async () => {
+  const pre = $('kcLogs');
+  if (!pre.hidden) { pre.hidden = true; return; }
+  try {
+    const d = await api('proxycore/logs');
+    pre.textContent = (d.lines || []).join('\n') || '（暂无日志）';
+    pre.hidden = false;
+  } catch (e) { toast(e.message, 'err'); }
+};
+$('kcAdd').onclick = async () => {
+  const url = $('kcURL').value.trim();
+  if (!url) { toast('先填订阅地址（或点「粘贴内容」）', 'err'); return; }
+  const b = $('kcAdd');
+  b.disabled = true;
+  $('kcRes').textContent = '正在拉取订阅…（直连失败会经代理池再试，最多约 45 秒）';
+  try {
+    const d = await api('proxycore/subs', { method: 'POST', body: JSON.stringify({ name: $('kcName').value.trim(), url }) });
+    $('kcURL').value = ''; $('kcName').value = '';
+    $('kcRes').innerHTML = d.warning
+      ? '<div style="color:var(--bad)">订阅已保存，但没拉到内容：' + esc(d.warning) + '</div>'
+      : '<div>已添加「' + esc(d.sub.name) + '」，点「选节点」勾选要用的节点</div>';
+    await kcAfter(d);
+  } catch (e) {
+    $('kcRes').innerHTML = '<div style="color:var(--bad)">' + esc(e.message) + '</div>';
+  } finally {
+    b.disabled = false;
+  }
+};
+function kcOpenPaste(id) {
+  kcPasteTarget = id;
+  const s = id && kcData ? (kcData.subs || []).find(x => x.id === id) : null;
+  $('kcPasteHint').textContent = s ? '替换「' + s.name + '」的内容（之后有订阅地址的仍会按计划自动更新）' : '新建一个订阅：粘贴的内容不会自动更新，除非同时在上面填了订阅地址';
+  $('kcPaste').hidden = false;
+  $('kcContent').focus();
+}
+$('kcPasteNew').onclick = () => kcOpenPaste('');
+$('kcPasteCancel').onclick = () => { $('kcPaste').hidden = true; $('kcContent').value = ''; };
+$('kcPasteSave').onclick = async () => {
+  const content = $('kcContent').value.trim();
+  if (!content) { toast('先粘贴内容', 'err'); return; }
+  const b = $('kcPasteSave');
+  b.disabled = true;
+  try {
+    const d = kcPasteTarget
+      ? await api('proxycore/subs/' + encodeURIComponent(kcPasteTarget) + '/content', { method: 'POST', body: JSON.stringify({ content }) })
+      : await api('proxycore/subs', { method: 'POST', body: JSON.stringify({ name: $('kcName').value.trim(), url: $('kcURL').value.trim(), content }) });
+    $('kcContent').value = ''; $('kcPaste').hidden = true;
+    $('kcRes').innerHTML = d.warning ? '<div style="color:var(--bad)">' + esc(d.warning) + '</div>' : '<div>内容已保存</div>';
+    if (!kcPasteTarget) { $('kcURL').value = ''; $('kcName').value = ''; }
+    await kcAfter(d);
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    b.disabled = false;
+  }
+};
+$('kcBody').onclick = async e => {
+  const b = e.target.closest('button[data-a]');
+  if (!b) return;
+  const id = b.dataset.id, base = 'proxycore/subs/' + encodeURIComponent(id);
+  if (b.dataset.a === 'nodes') return kcOpenNodes(id);
+  if (b.dataset.a === 'paste') return kcOpenPaste(id);
+  b.disabled = true;
+  try {
+    if (b.dataset.a === 'refresh') {
+      await api(base + '/refresh', { method: 'POST' });
+      toast('订阅已更新', 'ok');
+      await kcAfter();
+      if (kcNodesSub === id) kcOpenNodes(id);
+    } else if (b.dataset.a === 'remove') {
+      if (!confirm('删除这个订阅？\n\n它下面勾选的节点会一起退出代理池。')) return;
+      const d = await api(base + '/remove', { method: 'POST' });
+      if (kcNodesSub === id) $('kcNodes').hidden = true;
+      await kcAfter(d);
+    }
+  } catch (er) {
+    toast(er.message, 'err');
+    loadCore();
+  } finally {
+    b.disabled = false;
+  }
+};
+/* 节点列表：勾选状态先在页面里改，点「保存勾选」才提交（整体替换这个订阅的勾选）。 */
+function kcNodeMatch(n, q) {
+  if (!q) return true;
+  return q.toLowerCase().split(/\s+/).filter(Boolean).every(w => (n.name + ' ' + n.type).toLowerCase().includes(w));
+}
+function kcDelayHTML(n) {
+  if (n.delay > 0) return '<span class="tag ' + (n.delay < 800 ? 'ok' : 'warn') + '">' + n.delay + ' ms</span>';
+  return n.tested ? '<span class="tag bad">不通</span>' : '<span class="tag mute">—</span>';
+}
+function kcNodeRowHTML(n) {
+  const nm = esc(n.name);
+  return '<tr class="' + (n.missing ? 'off' : '') + '"><td class="mark"><i></i></td><td class="c-acts"><input type="checkbox" data-n="' + nm + '"' +
+    (kcChecked.has(n.name) ? ' checked' : '') + '></td><td>' + nm + (n.missing ? ' <span class="tag bad">已不在订阅里</span>' : '') +
+    '</td><td>' + esc(n.type || '') + '</td><td>' + kcDelayHTML(n) + '</td><td>' + (n.port ? '127.0.0.1:' + n.port : '—') + '</td></tr>';
+}
+function kcRenderNodes() {
+  const q = $('kcNodeQ').value.trim();
+  const shown = kcNodesList.filter(n => kcNodeMatch(n, q));
+  $('kcNodeCount').textContent = '显示 ' + shown.length + ' / ' + kcNodesList.length + ' 个，已勾选 ' + kcChecked.size + ' 个';
+  $('kcNodeBody').innerHTML = shown.length ? shown.map(kcNodeRowHTML).join('')
+    : '<tr><td colspan="6"><div class="empty">没有匹配的节点</div></td></tr>';
+}
+async function kcOpenNodes(id) {
+  const s = kcData ? (kcData.subs || []).find(x => x.id === id) : null;
+  kcNodesSub = id;
+  $('kcNodes').hidden = false;
+  $('kcNodesTitle').textContent = s ? s.name : '';
+  $('kcNodeBody').innerHTML = '<tr><td colspan="6"><div class="empty">读取节点…</div></td></tr>';
+  try {
+    const d = await api('proxycore/subs/' + encodeURIComponent(id) + '/nodes');
+    kcNodesList = d.nodes || [];
+    kcChecked = new Set(kcNodesList.filter(n => n.selected).map(n => n.name));
+    kcRenderNodes();
+  } catch (e) {
+    kcNodesList = [];
+    $('kcNodeBody').innerHTML = '<tr><td colspan="6"><div class="empty">' + esc(e.message) + '</div></td></tr>';
+  }
+}
+$('kcNodeQ').oninput = kcRenderNodes;
+$('kcNodeBody').onchange = e => {
+  const c = e.target.closest('input[data-n]');
+  if (!c) return;
+  const name = kcNodesList.find(n => esc(n.name) === c.dataset.n || n.name === c.dataset.n);
+  if (!name) return;
+  if (c.checked) kcChecked.add(name.name); else kcChecked.delete(name.name);
+  $('kcNodeCount').textContent = $('kcNodeCount').textContent.replace(/已勾选 \d+ 个/, '已勾选 ' + kcChecked.size + ' 个');
+};
+$('kcNodeCheck').onclick = () => {
+  const q = $('kcNodeQ').value.trim();
+  kcNodesList.filter(n => kcNodeMatch(n, q) && !n.missing).forEach(n => kcChecked.add(n.name));
+  kcRenderNodes();
+};
+$('kcNodeClear').onclick = () => { kcChecked.clear(); kcRenderNodes(); };
+$('kcNodeClose').onclick = () => { $('kcNodes').hidden = true; kcNodesSub = ''; };
+$('kcNodeDelay').onclick = async () => {
+  const q = $('kcNodeQ').value.trim();
+  const names = kcNodesList.filter(n => kcNodeMatch(n, q) && !n.missing).map(n => n.name);
+  if (!names.length) return;
+  const b = $('kcNodeDelay');
+  b.disabled = true;
+  b.textContent = '测速中…';
+  try {
+    const d = await api('proxycore/subs/' + encodeURIComponent(kcNodesSub) + '/delay', { method: 'POST', body: JSON.stringify({ nodes: names }) });
+    kcNodesList.forEach(n => { if (n.name in d.delay) { n.delay = d.delay[n.name]; n.tested = true; } });
+    kcRenderNodes();
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    b.disabled = false;
+    b.textContent = '测延迟';
+  }
+};
+$('kcNodeSave').onclick = async () => {
+  const b = $('kcNodeSave');
+  b.disabled = true;
+  try {
+    const d = await api('proxycore/subs/' + encodeURIComponent(kcNodesSub) + '/select', { method: 'POST', body: JSON.stringify({ nodes: [...kcChecked] }) });
+    toast('已保存：' + kcChecked.size + ' 个节点在代理池里', 'ok');
+    await kcAfter(d);
+    await kcOpenNodes(kcNodesSub);
+    if (kcChecked.size) kpTestIds(((kpData && kpData.proxies) || []).filter(r => r.source === 'sub').map(r => r.id));
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    b.disabled = false;
+  }
+};
 /* 并发 4 个一组测试；测完统一重新拉一次列表（测试结果存在服务端内存里）。 */
 async function kpTestIds(ids) {
   if (kpTesting || !ids.length) return;

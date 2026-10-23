@@ -64,7 +64,7 @@ func (p *Panel) kiroResync(apply func() error) (moved int, err error) {
 	if err := apply(); err != nil {
 		return 0, err
 	}
-	client.SetManagedProxies(p.cfg.Kiro.Proxies.EnabledURLs())
+	p.cfg.Kiro.SyncManagedProxies()
 	for _, a := range accts {
 		if client.EgressKey(kiroacct.Cred(a)) == before[a.UID] {
 			continue
@@ -94,12 +94,14 @@ func (p *Panel) kiroProxiesList(w http.ResponseWriter, r *http.Request) {
 	accounts := []map[string]any{}
 	for _, a := range p.kiroAuths() {
 		cred := kiroacct.Cred(a)
-		if key := client.EgressKey(cred); key != "" {
+		key := client.EgressKey(cred)
+		if key != "" {
 			users[key]++
 		}
 		info := client.ProxyInfo(cred)
 		accounts = append(accounts, map[string]any{
 			"uid": a.UID, "nickname": a.Nickname, "kind": info.Kind, "proxy": info.Label, "down": info.Down,
+			"label": p.proxyLabel(key),
 		})
 	}
 	sort.Slice(accounts, func(i, j int) bool { return accounts[i]["uid"].(string) < accounts[j]["uid"].(string) })
@@ -124,8 +126,17 @@ func (p *Panel) kiroProxiesList(w http.ResponseWriter, r *http.Request) {
 	for _, e := range p.cfg.Kiro.Proxies.List() {
 		rows = append(rows, row(e.ID, e.URL, e.Note, "panel", e.Enabled))
 	}
+	// 订阅里勾选的节点（内核的本机代理口）：启停在订阅的节点列表里勾选，这里只能测试。
+	if p.cfg.ProxyCore != nil {
+		for _, u := range p.cfg.ProxyCore.NodeURLs() {
+			if sub, node, ok := p.cfg.ProxyCore.NodeLabel(u); ok {
+				rows = append(rows, row(kiro.ProxyID(u), u, sub+" · "+node, "sub", true))
+			}
+		}
+	}
 	resp := map[string]any{
 		"proxies": rows, "accounts": accounts, "pool_active": len(members) > 0, "max": kiroacct.MaxManagedProxies,
+		"platforms": p.egressRows(),
 	}
 	if t, ok := p.krProxyTests.Load(kiroDirectTestID); ok {
 		resp["direct_test"] = t
@@ -271,10 +282,10 @@ func (p *Panel) kiroProxiesTest(w http.ResponseWriter, r *http.Request) {
 	}
 	target := ""
 	if e, ok := p.cfg.Kiro.Proxies.Get(id); ok {
-		target = e.URL
+		target = e.URL // 停用的也能测
 	} else {
 		for _, m := range p.cfg.Kiro.Client.PoolMembers() {
-			if m.Config && kiro.ProxyID(m.URL) == id {
+			if kiro.ProxyID(m.URL) == id { // 配置文件里的、订阅节点
 				target = m.URL
 			}
 		}

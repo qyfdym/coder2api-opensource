@@ -157,6 +157,8 @@ func main() {
 	} else {
 		log.Printf("Kiro 已禁用（kiro.enabled=false）")
 	}
+	// 机场订阅 + 代理内核（勾选的节点进代理池，Kiro / WorkBuddy / Qoder 共用）；依赖 Kiro 启用。
+	core := buildProxyCore(cfg, kr)
 
 	// 积分保底的「收费」兜底判据：接上游模型目录的积分倍率表。本地实测台账无观测
 	// 时用它判收费——否则「没学过」恒等于「放行」，高价新模型会把触底号一笔打穿
@@ -358,6 +360,8 @@ func main() {
 		Qoder: qd,
 		// Kiro 账号运维（设备授权登录 / 凭证导入 / 余额）；nil = 未启用，入口回 501。
 		Kiro: kr,
+		// 机场订阅与代理内核；nil = 未启用（Kiro 关闭时），入口回 501。
+		ProxyCore: core,
 	})
 	// 成长任务队列每日自动执行（与「执行全部待办」同管线）：Sequential 族零点解锁后
 	// 无需手动扫描；hook 返回即启动（异步执行），已在跑时内部跳过。
@@ -401,6 +405,11 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if core != nil {
+		// 先把代理内核拉起来（上次在运行的话），再开始调度与预热：勾选的订阅节点一开始就在代理池里，
+		// 内核没起来时 Kiro 的请求会被拒绝，节点会被误判为连不上。
+		core.StartIfWanted(ctx)
+	}
 	go sch.Run(ctx)
 	sch.StartBalanceRefresh(ctx, cfg.BalanceRefreshInterval)
 	sch.StartTaskSweep(ctx, cfg.TaskSweepInterval)
@@ -414,6 +423,13 @@ func main() {
 	go warmModelRates(ctx, up, p)
 	go warmQoder(ctx, qd, p)
 	go warmKiro(ctx, kr, p)
+	if core != nil {
+		go core.RunScheduler(ctx) // 按计划更新订阅
+	}
+	if kr != nil {
+		// 定时探测代理池成员：只有 WorkBuddy / Qoder 在用、或长时间没人用的代理挂了，也能及时绕开。
+		go kr.Client.RunPoolProbe(ctx, 3*time.Minute)
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,
@@ -430,9 +446,16 @@ func main() {
 		// （长流式生成合法时长可达数分钟，全局 WriteTimeout 会误杀在途 SSE）。
 		IdleTimeout: 120 * time.Second,
 	}
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		<-ctx.Done()
 		p.Flush() // 信号触发：先落盘再做优雅停机
+		if core != nil {
+			// 等在途请求（可能正经过订阅节点）收尾之后再结束代理内核；Linux 上网关被直接 kill 时
+			// 内核也会跟着退出。
+			defer core.Shutdown()
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
@@ -442,6 +465,7 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("http: %v", err)
 	}
+	<-shutdownDone // 等代理内核结束再退出
 	log.Printf("bye")
 }
 

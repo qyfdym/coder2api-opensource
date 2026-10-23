@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"strings"
 	"testing"
 	"time"
@@ -213,9 +214,16 @@ func TestTransportForProxies(t *testing.T) {
 type fixedRT struct {
 	err  error
 	resp *http.Response
+	// connected 返回之前先报告「拿到了连接」（模拟连上之后上游才出问题）。
+	connected bool
 }
 
-func (f fixedRT) RoundTrip(*http.Request) (*http.Response, error) { return f.resp, f.err }
+func (f fixedRT) RoundTrip(r *http.Request) (*http.Response, error) {
+	if tr := httptrace.ContextClientTrace(r.Context()); f.connected && tr != nil && tr.GotConn != nil {
+		tr.GotConn(httptrace.GotConnInfo{})
+	}
+	return f.resp, f.err
+}
 
 // 只有「连代理」这一段的错误才计入代理健康；上游慢 / 请求被取消不算。
 func TestHealthRoundTripperCountsOnlyProxyFaults(t *testing.T) {
@@ -226,7 +234,7 @@ func TestHealthRoundTripperCountsOnlyProxyFaults(t *testing.T) {
 	proxyErr := &net.OpError{Op: "proxyconnect", Net: "tcp", Err: errors.New("connection refused")}
 	req, _ := http.NewRequest(http.MethodGet, "https://example.com", nil)
 
-	slow := healthRT{base: fixedRT{err: errors.New("net/http: timeout awaiting response headers")}, key: key, h: h}
+	slow := healthRT{base: fixedRT{err: errors.New("net/http: timeout awaiting response headers"), connected: true}, key: key, h: h}
 	for i := 0; i < 5; i++ {
 		_, _ = slow.RoundTrip(req)
 	}

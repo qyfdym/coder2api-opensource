@@ -117,7 +117,19 @@ func TestAppJSKiroProxyPoolRender(t *testing.T) {
 			t.Errorf("app.js references #%s but index.html has no such element", id)
 		}
 	}
-	for _, s := range []string{`id="view-kiroproxies"`, `data-view="kiroproxies"`, `id="navKiroProxies"`} {
+	kc := map[string]bool{}
+	for _, m := range regexp.MustCompile(`\$\('(kc[A-Za-z]*)'\)`).FindAllStringSubmatch(string(js), -1) {
+		kc[m[1]] = true
+	}
+	if len(kc) < 20 {
+		t.Fatalf("only %d subscription element ids found in app.js; pattern broken?", len(kc))
+	}
+	for id := range kc {
+		if !strings.Contains(string(html), `id="`+id+`"`) {
+			t.Errorf("app.js references #%s but index.html has no such element", id)
+		}
+	}
+	for _, s := range []string{`id="view-kiroproxies"`, `data-view="kiroproxies"`, `id="navKiroProxies"`, `id="kpEgBody"`} {
 		if !strings.Contains(string(html), s) {
 			t.Errorf("index.html missing %s", s)
 		}
@@ -132,10 +144,41 @@ const vm = require('vm');
 const assert = require('assert');
 const src = fs.readFileSync(process.argv[2], 'utf8');
 const cut = (a, b) => { const i = src.indexOf(a), j = src.indexOf(b); if (i < 0 || j < 0 || j < i) throw new Error('region not found: ' + a); return src.slice(i, j); };
-const ctx = { String, Date, Number, KIRO_PROXY_KIND: { account: '账号代理', pool: '代理池', default: '默认代理', direct: '直连' } };
+const ctx = { String, Date, Number, Math, Set, KIRO_PROXY_KIND: { account: '账号代理', pool: '代理池', default: '默认代理', direct: '直连' } };
 vm.createContext(ctx);
 vm.runInContext(cut('function esc(', 'function ago(') + cut('function kpMoved(', 'function kpRender(') +
-  '\nthis.row=kpRowHTML; this.acc=kpAccHTML; this.test=kpTestHTML; this.direct=kpDirectHTML;', ctx);
+  cut('let kcData = null', 'function kcRender(') + cut('function kcNodeMatch(', 'function kcRenderNodes(') +
+  '\nthis.row=kpRowHTML; this.acc=kpAccHTML; this.test=kpTestHTML; this.direct=kpDirectHTML; this.eg=kpEgRowHTML;' +
+  ' this.sub=kcSubHTML; this.node=kcNodeRowHTML; this.match=kcNodeMatch; this.bytes=kcBytes; this.status=kcStatusText;' +
+  ' this.check=n => kcChecked.add(n);', ctx);
+// 订阅节点行：显示「订阅名 · 节点名」，只能测试，不能停用 / 删除；节点名转义。
+const subRow = ctx.row({ id: 'n1', proxy: 'http://127.0.0.1:17890', note: '机场 · <b>US</b>', source: 'sub', enabled: true, active: true, accounts: 1, auth: true });
+assert(subRow.includes('订阅') && subRow.includes('&lt;b&gt;US') && !subRow.includes('<b>US') && subRow.includes('data-a="test"'), subRow);
+assert(!subRow.includes('data-a="remove"') && !subRow.includes('data-a="toggle"') && !subRow.includes('>认证<'), subRow);
+// 平台出口：池里生效的成员才能选；固定的成员不在池里时也要显示出来；错误信息转义。
+const pool = [{ id: 'a', proxy: 'http://h:1', source: 'panel', active: true }, { id: 'b', proxy: 'x', source: 'sub', note: '机场 · JP', active: true }, { id: 'c', proxy: 'off', active: false }];
+const egOff = ctx.eg({ platform: 'workbuddy', name: 'WorkBuddy', mode: '', direct_cn: true }, pool);
+assert(egOff.includes('value="" selected') && egOff.includes('value="pin:a"') && egOff.includes('固定：机场 · JP') && !egOff.includes('pin:c') && egOff.includes('checked'), egOff);
+const egPin = ctx.eg({ platform: 'qoder', name: 'Qoder', mode: 'pin', proxy_id: 'gone', direct_cn: false, error: '<x>没有</x>' }, pool);
+assert(egPin.includes('value="pin:gone" selected') && egPin.includes('已不在池里') && egPin.includes('&lt;x&gt;') && !egPin.includes(' checked'), egPin);
+// 订阅行：流量 / 到期 / 错误，名称与错误都转义。
+const sub = ctx.sub({ id: 's"1', name: '<i>机场</i>', host: 'cdn.example', has_url: true, has_content: true, effective_interval_min: 1440,
+  updated_at: Math.floor(Date.now() / 1000) - 7200, via: '直连', format: 'clash', size: 77000, selected: 2,
+  info: { upload: 1, download: 1023, total: 2048, expire: 1793116800 }, last_error: '<script>x</script>' });
+assert(sub.includes('&lt;i&gt;机场') && sub.includes('&lt;script&gt;') && !sub.includes('<script>') && sub.includes('data-id="s&quot;1"'), sub);
+assert(sub.includes('1.0 KB / 2.0 KB') && sub.includes('2 小时前') && sub.includes('每 24 小时自动更新') && sub.includes('2 个'), sub);
+assert(ctx.sub({ id: 'm', name: 'm', has_url: false, info: { upload: 5, download: 5, total: 10 } }).includes('流量用完'));
+assert(!ctx.sub({ id: 'm', name: 'm', has_url: false }).includes('data-a="refresh"'), 'a pasted-only subscription has nothing to refresh');
+// 节点行与筛选。
+ctx.check('US 001');
+const nr = ctx.node({ name: 'US 001', type: 'Trojan', delay: 120, tested: true, port: 17890 });
+assert(nr.includes('checked') && nr.includes('120 ms') && nr.includes('127.0.0.1:17890'), nr);
+assert(ctx.node({ name: 'gone', missing: true, tested: false }).includes('已不在订阅里'));
+assert(ctx.node({ name: 'JP', type: 'Vmess', delay: 0, tested: true }).includes('不通'));
+assert(ctx.match({ name: '美国 01', type: 'Trojan' }, '美国 trojan') && !ctx.match({ name: '日本', type: 'Vmess' }, '美国'));
+assert.equal(ctx.bytes(162022817792), '151 GB'); assert.equal(ctx.bytes(35760107693), '33.3 GB');
+assert(ctx.status({ installed: false, install: { running: true } }).includes('正在下载'));
+assert(ctx.status({ installed: true, running: true, version: 'v1', listeners: 3 }).includes('3 个节点代理口'));
 assert.equal(ctx.direct(null), '');
 const dfail = ctx.direct({ ok: false, error: '<b>i/o timeout</b>', at: 1 });
 assert(dfail.includes('连不上 Kiro') && dfail.includes('需要在下面添加') && !dfail.includes('<b>i/o'), dfail);

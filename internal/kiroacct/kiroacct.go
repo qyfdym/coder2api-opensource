@@ -32,6 +32,8 @@ type Service struct {
 	LocalCacheDir string
 	// Proxies 面板托管的代理池存储（装配期设置；nil = 不提供面板管理，只用 config 里的 proxy_pool）。
 	Proxies *ProxyStore
+	// NodeURLs 机场订阅里勾选的节点（代理内核的本机监听口地址）；nil = 没有代理内核。见 egress.go。
+	NodeURLs func() []string
 
 	// ChatFunc 推理入口覆盖（测试注入假上游用）；nil = Client.ChatStream。
 	ChatFunc func(ctx context.Context, cred kiro.Cred, body []byte) (io.ReadCloser, *kiro.Error)

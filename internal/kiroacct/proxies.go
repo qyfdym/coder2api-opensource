@@ -1,6 +1,6 @@
 package kiroacct
 
-// 面板托管的 Kiro 代理池：一个 JSON 文件（与 state.json 同目录），热增删、热启停，不必改 config.json 重启。
+// 面板托管的代理池（Kiro 按账号分配，WorkBuddy / Qoder 可选用）：一个 JSON 文件（与 state.json 同目录），热增删、热启停，不必改 config.json 重启。
 // 文件里存的是带账号密码的完整地址（0600 权限），对外展示一律用 kiro.MaskProxyURL 脱敏。
 
 import (
@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/linguo2625469/workbuddy2api-panel/internal/egress"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/kiro"
 )
 
@@ -27,16 +28,35 @@ type ProxyEntry struct {
 	AddedAt int64  `json:"added_at,omitempty"`
 }
 
+// 平台出口模式（WorkBuddy / Qoder）。
+const (
+	EgressOff  = ""     // 关闭：跟随环境变量 HTTPS_PROXY（缺省，与以前完全一样）
+	EgressAuto = "auto" // 代理池里稳定选一个，连不上顺延
+	EgressPin  = "pin"  // 固定用池里的某一个（ProxyID）
+)
+
+// PlatformEgress 一个平台（WorkBuddy / Qoder）的出口设置。
+type PlatformEgress struct {
+	Mode string `json:"mode,omitempty"`
+	// ProxyID Mode=pin 时固定使用的池成员（kiro.ProxyID）。
+	ProxyID string `json:"proxy_id,omitempty"`
+	// DirectCN 国内域名（*.cn、*.tencent.com、*.qq.com）不走代理。国内版上游对海外出口不友好
+	// （copilot.tencent.com 会直接复位海外来的 TLS 连接），缺省打开。
+	DirectCN bool `json:"direct_cn"`
+}
+
 type proxyFile struct {
-	Proxies []ProxyEntry `json:"proxies"`
+	Proxies   []ProxyEntry              `json:"proxies"`
+	Platforms map[string]PlatformEgress `json:"platforms,omitempty"`
 }
 
 // ProxyStore 托管代理的持久化存储（并发安全）。
 type ProxyStore struct {
 	path string
 
-	mu      sync.Mutex
-	entries []ProxyEntry
+	mu        sync.Mutex
+	entries   []ProxyEntry
+	platforms map[string]PlatformEgress
 }
 
 // OpenProxyStore 打开（必要时视为空）代理存储。文件不存在 = 空；文件损坏时先备份成 .bad-<时间戳>
@@ -66,7 +86,57 @@ func OpenProxyStore(path string) (*ProxyStore, error) {
 		e.URL, e.ID = n, kiro.ProxyID(n)
 		s.entries = append(s.entries, e)
 	}
+	for name, pe := range f.Platforms {
+		if validPlatform(name) && validEgressMode(pe.Mode) {
+			if s.platforms == nil {
+				s.platforms = map[string]PlatformEgress{}
+			}
+			s.platforms[name] = pe
+		}
+	}
 	return s, nil
+}
+
+func validPlatform(name string) bool { return name == egress.WorkBuddy || name == egress.Qoder }
+
+func validEgressMode(m string) bool { return m == EgressOff || m == EgressAuto || m == EgressPin }
+
+// Platform 某个平台当前的出口设置（没设置过 = 关闭、国内域名直连）。
+func (s *ProxyStore) Platform(name string) PlatformEgress {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if pe, ok := s.platforms[name]; ok {
+		return pe
+	}
+	return PlatformEgress{DirectCN: true}
+}
+
+// SetPlatform 修改某个平台的出口设置并落盘。
+func (s *ProxyStore) SetPlatform(name string, pe PlatformEgress) error {
+	if !validPlatform(name) {
+		return fmt.Errorf("未知平台 %q", name)
+	}
+	if !validEgressMode(pe.Mode) {
+		return fmt.Errorf("未知出口模式 %q（off / auto / pin）", pe.Mode)
+	}
+	if pe.Mode == EgressPin && pe.ProxyID == "" {
+		return errors.New("固定代理需要选一个代理")
+	}
+	if pe.Mode != EgressPin {
+		pe.ProxyID = ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := make(map[string]PlatformEgress, len(s.platforms)+1)
+	for k, v := range s.platforms {
+		next[k] = v
+	}
+	next[name] = pe
+	if err := s.saveLocked(s.entries, next); err != nil {
+		return err
+	}
+	s.platforms = next
+	return nil
 }
 
 // List 全部托管代理（按添加顺序，副本）。
@@ -171,8 +241,10 @@ func (s *ProxyStore) Remove(id string) (found bool, err error) {
 }
 
 // save 原子写盘（先写临时文件再 rename）。调用方持有 s.mu。
-func (s *ProxyStore) save(entries []ProxyEntry) error {
-	data, err := json.MarshalIndent(proxyFile{Proxies: entries}, "", "  ")
+func (s *ProxyStore) save(entries []ProxyEntry) error { return s.saveLocked(entries, s.platforms) }
+
+func (s *ProxyStore) saveLocked(entries []ProxyEntry, platforms map[string]PlatformEgress) error {
+	data, err := json.MarshalIndent(proxyFile{Proxies: entries, Platforms: platforms}, "", "  ")
 	if err != nil {
 		return err
 	}

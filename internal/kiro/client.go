@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -55,8 +56,10 @@ type Client struct {
 	poolMu sync.RWMutex
 	all    []string
 	health *proxyHealth
-	setsMu sync.Mutex
-	sets   map[string]*httpSet
+	// probing 后台探测代理池的一轮正在进行（见 ProbePool）。
+	probing atomic.Bool
+	setsMu  sync.Mutex
+	sets    map[string]*httpSet
 
 	models modelCache
 

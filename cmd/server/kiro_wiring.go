@@ -6,10 +6,12 @@ import (
 	"time"
 
 	"github.com/linguo2625469/workbuddy2api-panel/internal/auth"
+	"github.com/linguo2625469/workbuddy2api-panel/internal/egress"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/kiro"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/kiroacct"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/logfmt"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/pool"
+	"github.com/linguo2625469/workbuddy2api-panel/internal/proxycore"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/scheduler"
 )
 
@@ -34,7 +36,55 @@ func buildKiro(cfg *Config) *kiroacct.Service {
 	if n := len(proxies.EnabledURLs()); n > 0 {
 		log.Printf("[kiro] 面板代理池: %d 个已启用", n)
 	}
-	return &kiroacct.Service{Client: client, AuthDir: cfg.AuthDir, Proxies: proxies}
+	svc := &kiroacct.Service{Client: client, AuthDir: cfg.AuthDir, Proxies: proxies}
+	// WorkBuddy / Qoder 的出站代理开关：面板里打开后走这个代理池，默认关闭（跟随环境变量）。
+	egress.Set(svc.EgressResolver())
+	return svc
+}
+
+// buildProxyCore 机场订阅与代理内核（与 state.json 同目录的 proxycore/）。依赖 Kiro：代理池在 Kiro 客户端里。
+// 勾选的订阅节点作为本机代理口加入代理池；内核状态（是否运行、订阅、勾选）都在面板里管理。
+func buildProxyCore(cfg *Config, kr *kiroacct.Service) *proxycore.Manager {
+	if kr == nil {
+		return nil
+	}
+	var core *proxycore.Manager
+	core, err := proxycore.New(proxycore.Options{
+		Dir: stateSibling(cfg.StateFile, "proxycore"),
+		// 直连拉订阅失败时（很多机场不让国内 IP 直接拉）经代理池重试：订阅节点优先，连不上的跳过。
+		FetchVia: func() []string {
+			var nodes, others []string
+			for _, m := range kr.Client.PoolMembers() {
+				if m.Down {
+					continue
+				}
+				if core != nil && core.IsNodeURL(m.URL) {
+					nodes = append(nodes, m.URL)
+				} else {
+					others = append(others, m.URL)
+				}
+			}
+			return append(nodes, others...)
+		},
+		// 节点集合变了（启停内核、勾选变化）：同步进代理池，并马上探测一遍——内核刚起来时，
+		// 之前「连不上」的标记已经过时，不清掉的话账号要等一分钟才回到原来的节点。
+		OnChange: func() {
+			kr.SyncManagedProxies()
+			go kr.Client.ProbePool(context.Background())
+		},
+	})
+	if err != nil {
+		log.Printf("WARN: [proxycore] %v", err)
+		if core == nil {
+			return nil
+		}
+	}
+	kr.NodeURLs = core.NodeURLs
+	kr.SyncManagedProxies()
+	if n := len(core.NodeURLs()); n > 0 {
+		log.Printf("[proxycore] %d 个订阅节点在代理池里", n)
+	}
+	return core
 }
 
 // kiroOps 把 kiroacct.Service 适配成调度器的 KiroOps（调度器不直接依赖 Kiro 协议包）。

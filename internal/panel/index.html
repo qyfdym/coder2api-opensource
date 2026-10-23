@@ -364,7 +364,7 @@ label.fld > .hint { display: block; font-size: 11.5px; color: var(--ink-3); marg
   border: 1px solid var(--line); border-radius: 7px; padding: 8px 11px;
 }
 #krImportText:focus { outline: none; border-color: var(--accent); }
-/* Kiro 代理池页：粘贴框沿用凭证导入框的样子；添加行、测试结果行。 */
+/* 代理池与订阅页：粘贴框沿用凭证导入框的样子；添加行、测试结果行。 */
 #kpText {
   display: block; width: 100%; min-height: 112px; resize: vertical; margin-bottom: 8px;
   font: 12px/1.6 var(--mono); color: var(--ink); background: var(--surface-2);
@@ -376,6 +376,19 @@ label.fld > .hint { display: block; font-size: 11.5px; color: var(--ink-3); marg
 .kp-add .hint { font-size: 11.5px; color: var(--ink-3); }
 .kp-add .grow { flex: 1; }
 #view-kiroproxies .acc .sub { margin-top: 3px; font-size: 11.5px; color: var(--ink-3); overflow-wrap: anywhere; }
+/* 机场订阅：输入框按内容取宽；粘贴框同代理粘贴框；节点列表限高滚动。 */
+#view-kiroproxies .kc-in { width: auto; min-width: 0; padding: 5px 9px; font-size: 12.5px; }
+#view-kiroproxies .kc-add { margin-top: 10px; }
+#kcContent { display: block; width: 100%; min-height: 120px; resize: vertical; margin-bottom: 8px;
+  font: 12px/1.6 var(--mono); color: var(--ink); background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 7px; padding: 8px 11px; }
+#kcContent:focus { outline: none; border-color: var(--accent); }
+.kc-file { display: inline-flex; align-items: center; cursor: pointer; padding: 3.5px 9px; border: 1px solid var(--line); border-radius: 6px; }
+.kc-nodebar { padding: 10px 17px; border-top: 1px solid var(--line-soft); }
+.kc-nodes { max-height: 460px; overflow: auto; }
+.kc-nodes input[type=checkbox] { width: auto; accent-color: var(--accent); }
+#kpEgBody select { width: auto; max-width: 340px; }
+#kpEgBody input[type=checkbox] { width: auto; accent-color: var(--accent); }
 .kr-res { margin-top: 8px; font-size: 12px; color: var(--ink-3); line-height: 1.7; max-height: 160px; overflow: auto; }
 .kr-res div { overflow-wrap: anywhere; }
 #krPortalCallback { display: block; width: 100%; resize: vertical; margin-bottom: 4px;
@@ -797,7 +810,7 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
         模型与档位</a></li>
       <li id="navKiroProxies"><a href="#kiroproxies" data-view="kiroproxies">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 1.8 3 3.8 3 6s-1 4.2-3 6c-2-1.8-3-3.8-3-6s1-4.2 3-6z"/></svg>
-        Kiro 代理池</a></li>
+        代理池与订阅</a></li>
       <li><a href="#config" data-view="config">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.6v1.9M8 12.5v1.9M1.6 8h1.9M12.5 8h1.9M3.5 3.5l1.3 1.3M11.2 11.2l1.3 1.3M12.5 3.5l-1.3 1.3M4.8 11.2l-1.3 1.3"/></svg>
         配置</a></li>
@@ -1045,11 +1058,73 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
       </div>
     </section>
 
-    <!-- Kiro 代理池 -->
+    <!-- 代理池（机场订阅 + 代理池 + WorkBuddy / Qoder 出口） -->
     <section class="view" id="view-kiroproxies" hidden>
+      <div class="box" id="kcBox" hidden>
+        <header>
+          <h3>机场订阅 <span class="hint">网关托管一个 mihomo 内核来解析订阅；勾选的节点会变成本机代理口，加入下面的代理池</span></h3>
+          <span class="grow"></span>
+          <span class="note" id="kcNote"></span>
+          <button class="xs" id="kcStart">启动内核</button>
+          <button class="xs" id="kcRestart">重启</button>
+          <button class="xs" id="kcStop">停止</button>
+          <button class="xs ghost" id="kcLogsBtn">日志</button>
+        </header>
+        <div class="pad">
+          <div class="kp-add" id="kcInstall" hidden>
+            <span id="kcInstallMsg">还没有代理内核（mihomo）。内核不随网关分发，需要先下载一次。</span>
+            <input id="kcMirror" class="kc-in" placeholder="镜像前缀（可留空），如 https://ghfast.top/" autocomplete="off" spellcheck="false">
+            <button class="primary xs" id="kcDownload">一键下载</button>
+            <label class="xs kc-file">上传文件<input type="file" id="kcFile" hidden></label>
+            <span class="hint" id="kcAsset"></span>
+          </div>
+          <div class="kr-res" id="kcInstallRes"></div>
+          <div class="kp-add kc-add">
+            <input id="kcName" class="kc-in" placeholder="名称（可留空）" autocomplete="off" spellcheck="false" style="flex:0 1 160px">
+            <input id="kcURL" class="kc-in" placeholder="订阅地址 https://…" autocomplete="off" spellcheck="false" style="flex:1 1 320px">
+            <button class="primary xs" id="kcAdd">添加并更新</button>
+            <button class="xs ghost" id="kcPasteNew" title="机场不让服务器直接拉订阅时，把订阅内容整段粘贴进来">粘贴内容</button>
+          </div>
+          <div id="kcPaste" hidden>
+            <div class="hint" id="kcPasteHint" style="margin:8px 0 4px"></div>
+            <textarea id="kcContent" spellcheck="false" autocomplete="off"
+              placeholder="粘贴订阅内容：Clash 配置（以 proxies: 开头的那段）、分享链接（每行一个 trojan:// vmess:// …），或 base64 都行。&#10;在本机浏览器里打开订阅地址，全选复制即可。"></textarea>
+            <div class="kp-add"><span class="grow"></span>
+              <button class="xs ghost" id="kcPasteCancel">取消</button>
+              <button class="primary xs" id="kcPasteSave">保存内容</button></div>
+          </div>
+          <div class="kr-res" id="kcRes"></div>
+        </div>
+        <div class="tbl-wrap">
+        <table class="acc md">
+          <thead><tr><th class="mark" aria-hidden="true"></th><th>订阅</th><th>流量 / 到期</th><th>更新</th><th>勾选</th><th></th></tr></thead>
+          <tbody id="kcBody"></tbody>
+        </table>
+        </div>
+        <div id="kcNodes" hidden>
+          <div class="kp-add kc-nodebar">
+            <b id="kcNodesTitle"></b>
+            <input id="kcNodeQ" class="kc-in" type="search" placeholder="筛选节点，如 US / 美国 / 日本" autocomplete="off" style="flex:0 1 220px">
+            <span class="hint" id="kcNodeCount"></span>
+            <span class="grow"></span>
+            <button class="xs" id="kcNodeDelay" title="让内核经每个节点访问 Kiro 入口，测延迟">测延迟</button>
+            <button class="xs" id="kcNodeCheck">勾选筛选结果</button>
+            <button class="xs" id="kcNodeClear">清空勾选</button>
+            <button class="primary xs" id="kcNodeSave">保存勾选</button>
+            <button class="xs ghost" id="kcNodeClose">收起</button>
+          </div>
+          <div class="tbl-wrap kc-nodes">
+          <table class="acc md">
+            <thead><tr><th class="mark" aria-hidden="true"></th><th class="c-acts"></th><th>节点</th><th>类型</th><th>延迟</th><th>本机代理口</th></tr></thead>
+            <tbody id="kcNodeBody"></tbody>
+          </table>
+          </div>
+        </div>
+        <pre class="qd-log" id="kcLogs" hidden></pre>
+      </div>
       <div class="box">
         <header>
-          <h3>Kiro 代理池 <span class="hint">Kiro 只对海外出口 IP 放出 Claude；国内服务器要走海外代理</span></h3>
+          <h3>代理池 <span class="hint">Kiro 只对海外出口 IP 放出 Claude；国内服务器要走海外代理。WorkBuddy / Qoder 打开出口代理后也用这个池</span></h3>
           <span class="grow"></span>
           <span class="note" id="kpNote"></span>
           <button class="xs" id="kpTestDirect" title="不经任何代理，测试服务器自己能不能连到 Kiro">测试服务器直连</button>
@@ -1081,7 +1156,18 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
       </div>
       <div class="box">
         <header>
-          <h3>账号当前的出口 <span class="hint">没有单独指定代理的账号，按账号稳定分配到池里的一个代理；它连不上才换下一个</span></h3>
+          <h3>WorkBuddy / Qoder 出口 <span class="hint">默认关闭（跟随服务器自己的网络 / HTTPS_PROXY）；打开后走上面的代理池，立即生效</span></h3>
+        </header>
+        <div class="tbl-wrap">
+        <table class="acc md">
+          <thead><tr><th class="mark" aria-hidden="true"></th><th>平台</th><th>出口</th><th>国内域名直连</th><th>现在走</th><th></th></tr></thead>
+          <tbody id="kpEgBody"></tbody>
+        </table>
+        </div>
+      </div>
+      <div class="box">
+        <header>
+          <h3>Kiro 账号当前的出口 <span class="hint">没有单独指定代理的账号，按账号稳定分配到池里的一个代理；它连不上才换下一个</span></h3>
         </header>
         <div class="tbl-wrap">
         <table class="acc md">
@@ -1427,7 +1513,7 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
             <div class="grid2">
               <label class="fld"><span class="lb">出站代理</span>
                 <input name="kiro_proxy_url" placeholder="留空 = 跟随 HTTPS_PROXY 环境变量" autocomplete="off" spellcheck="false">
-                <span class="hint">http:// / https:// / socks5://；需重启。Kiro 需要海外出口 IP 才有 Claude；多个代理请在左侧「Kiro 代理池」页管理，单个账号用账号行的「代理」按钮</span></label>
+                <span class="hint">http:// / https:// / socks5://；需重启。Kiro 需要海外出口 IP 才有 Claude；多个代理、机场订阅请在左侧「代理池与订阅」页管理，单个账号用账号行的「代理」按钮</span></label>
               <label class="fld"><span class="lb">Kiro IDE 版本（User-Agent）</span>
                 <input name="kiro_version" placeholder="留空 = 内置默认" autocomplete="off" spellcheck="false">
                 <span class="hint">需重启</span></label>

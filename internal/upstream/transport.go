@@ -10,6 +10,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/linguo2625469/workbuddy2api-panel/internal/egress"
 )
 
 // 连接层参数集中定义（与 server/backoff.go 同风格：一处定义，测试可回读断言）。
@@ -84,8 +86,8 @@ func newTransport() *http.Transport {
 		MaxIdleConnsPerHost:   maxIdleConnsPerHost,
 		IdleConnTimeout:       idleConnTimeout,
 		ResponseHeaderTimeout: responseHeaderTimeout,
-		// 自动读取环境变量中的代理配置
-		Proxy: http.ProxyFromEnvironment,
+		// 代理：面板「代理池」页打开了 WorkBuddy 出口代理时走代理池，否则跟随环境变量（见 egress 包）。
+		Proxy: egress.ProxyFunc(egress.WorkBuddy),
 	}
 }
 

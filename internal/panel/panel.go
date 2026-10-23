@@ -28,6 +28,7 @@ import (
 	"github.com/linguo2625469/workbuddy2api-panel/internal/kiroacct"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/livecfg"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/pool"
+	"github.com/linguo2625469/workbuddy2api-panel/internal/proxycore"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/qoder"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/qoderacct"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/reqlog"
@@ -81,6 +82,9 @@ type Config struct {
 	// Kiro Kiro 平台账号运维（Go 原生实现）。nil = 未启用：面板不提供 Kiro 添加账号入口，
 	// Kiro 账号（若有）的余额按钮返回 501。
 	Kiro *kiroacct.Service
+
+	// ProxyCore 机场订阅与代理内核（勾选的节点进代理池）。nil = 未启用（依赖 Kiro 启用），接口回 501。
+	ProxyCore *proxycore.Manager
 }
 
 // Panel 管理面板 handler。挂载方式：外层 mux Handle("/panel/", panel)，
@@ -251,6 +255,22 @@ func (p *Panel) routes() {
 	p.mux.HandleFunc("POST /panel/api/kiro/proxies/{id}/enabled", p.withAuth(p.kiroProxiesEnable))
 	p.mux.HandleFunc("POST /panel/api/kiro/proxies/{id}/remove", p.withAuth(p.kiroProxiesRemove))
 	p.mux.HandleFunc("POST /panel/api/kiro/proxies/{id}/test", p.withAuth(p.kiroProxiesTest))
+	p.mux.HandleFunc("POST /panel/api/kiro/egress", p.withAuth(p.egressSet))
+
+	// 机场订阅与代理内核（勾选的节点进代理池）。见 proxycore.go。
+	p.mux.HandleFunc("GET /panel/api/proxycore", p.withAuth(p.coreGet))
+	p.mux.HandleFunc("GET /panel/api/proxycore/logs", p.withAuth(p.coreLogs))
+	p.mux.HandleFunc("POST /panel/api/proxycore/install", p.withAuth(p.coreInstall))
+	p.mux.HandleFunc("POST /panel/api/proxycore/upload", p.withAuth(p.coreUpload))
+	p.mux.HandleFunc("POST /panel/api/proxycore/{action}", p.withAuth(p.coreAction))
+	p.mux.HandleFunc("POST /panel/api/proxycore/subs", p.withAuth(p.subAdd))
+	p.mux.HandleFunc("POST /panel/api/proxycore/subs/{id}/refresh", p.withAuth(p.subRefresh))
+	p.mux.HandleFunc("POST /panel/api/proxycore/subs/{id}/content", p.withAuth(p.subContent))
+	p.mux.HandleFunc("POST /panel/api/proxycore/subs/{id}/update", p.withAuth(p.subUpdate))
+	p.mux.HandleFunc("POST /panel/api/proxycore/subs/{id}/remove", p.withAuth(p.subRemove))
+	p.mux.HandleFunc("GET /panel/api/proxycore/subs/{id}/nodes", p.withAuth(p.subNodes))
+	p.mux.HandleFunc("POST /panel/api/proxycore/subs/{id}/select", p.withAuth(p.subSelect))
+	p.mux.HandleFunc("POST /panel/api/proxycore/subs/{id}/delay", p.withAuth(p.subDelay))
 }
 
 // ServeHTTP 统一入口：先写安全响应头再分发，保证页面、静态资源、API

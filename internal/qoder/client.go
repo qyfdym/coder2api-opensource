@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/linguo2625469/workbuddy2api-panel/internal/egress"
 )
 
 // Options Qoder 客户端装配参数（来自网关 config.qoder；零值均有合理缺省）。
@@ -77,12 +79,14 @@ type Client struct {
 // NewClient 构建客户端。
 //
 // 传输层：显式 HTTP/1.1（与原实现 urllib 一致的已验证路径），拨号 / TLS 握手 / 响应头
-// 各有上限，keep-alive 复用连接；代理遵循环境变量（HTTPS_PROXY / NO_PROXY）。
+// 各有上限，keep-alive 复用连接；代理默认遵循环境变量（HTTPS_PROXY / NO_PROXY），
+// 面板里打开 Qoder 出口代理后改走代理池（见 egress 包）。
 func NewClient(o Options) *Client {
 	o = o.withDefaults()
 	dialer := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
 	base := &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
+		// 面板「代理池」页打开了 Qoder 出口代理时走代理池，否则跟随环境变量（见 egress 包）。
+		Proxy:                 egress.ProxyFunc(egress.Qoder),
 		DialContext:           dialer.DialContext,
 		ForceAttemptHTTP2:     false,
 		TLSNextProto:          map[string]func(string, *tlsConn) http.RoundTripper{},
