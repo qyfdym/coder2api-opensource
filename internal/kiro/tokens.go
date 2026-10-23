@@ -82,8 +82,18 @@ func estimateRequestTokens(req *openAIRequest) int {
 	return total
 }
 
-// contextWindow 模型上下文窗口：Claude 4.6 及以后（含 5.x）为 1M，4.5 及以前为 200K
-// （与 ListAvailableModels 的口径一致）。用于把 contextUsagePercentage 换算成输入 token。
+// contextWindowFor 把 contextUsagePercentage 换算成输入 token 用的窗口：目录里该模型的
+// maxInputTokens 优先（真机实测 contextUsagePercentage 就是相对它的：qwen3-coder-next 实测
+// 255K ≈ 256000、deepseek-3.2 163K ≈ 164000、gpt-5.6-luna 920K ≈ 922000），目录里没有时按模型名估。
+func (c *Client) contextWindowFor(model string) int {
+	if m, ok := c.LookupModel(model); ok && m.MaxInput > 0 {
+		return m.MaxInput
+	}
+	return contextWindow(model)
+}
+
+// contextWindow 按模型名估的上下文窗口（目录里没有该模型时的兜底）：Claude 4.6 及以后（含 5.x）
+// 为 1M，4.5 及以前为 200K（与 ListAvailableModels 的口径一致）。
 func contextWindow(model string) int {
 	if isLargeContextModel(model) {
 		return 1_000_000

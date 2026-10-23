@@ -40,7 +40,7 @@ func (c *Client) ChatStream(ctx context.Context, cred Cred, body []byte) (io.Rea
 		model:    req.Model,
 		thinking: ep.thinking(),
 		estIn:    estimateRequestTokens(&req),
-		window:   contextWindow(modelID),
+		window:   c.contextWindowFor(modelID),
 	}
 	if !req.Stream {
 		return c.chatBuffered(ctx, cred, payload, plan)
