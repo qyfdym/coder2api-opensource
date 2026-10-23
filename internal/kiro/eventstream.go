@@ -56,7 +56,7 @@ func parseEventStream(body io.Reader, cb *streamCallbacks) (emitted bool, err er
 	var inputTokens, outputTokens int
 	var totalCredits float64
 	var contextPcts []float64
-	var sawOutput bool
+	var sawOutput, stopSeen bool
 	pending := &pendingToolUses{}
 	onTool := func(tu toolUse) {
 		sawOutput = true
@@ -117,6 +117,16 @@ func parseEventStream(body io.Reader, cb *streamCallbacks) (emitted bool, err er
 			if detail == "" {
 				detail = string(payload)
 			}
+			// 输出过长：上游在已有输出之后用 ContentLengthExceededException 截断（Kiro 的「输出上限」），
+			// 当作正常的长度截断（finish_reason=length），不当错误——错误帧会让客户端把已经收到的输出作废并重试。
+			// 还没有任何输出时它说的是输入过长，走下面的分类（KindTooLarge，不重试）。
+			if sawOutput && isContentLengthExceeded(exType) {
+				stopSeen = true
+				if cb.OnStopReason != nil {
+					cb.OnStopReason("max_tokens")
+				}
+				break
+			}
 			full := strings.TrimSpace(exType + ": " + detail)
 			kind := classify(0, full)
 			return emitted, &Error{Kind: kind, Code: exType, Msg: friendlyMessage(kind), Body: truncate(full, 2000)}
@@ -156,8 +166,11 @@ func parseEventStream(body io.Reader, cb *streamCallbacks) (emitted bool, err er
 		case "metadataEvent":
 			// stopReason 随 metadataEvent 下发（没有独立的 stop 事件）；流里有正文却始终没有
 			// stopReason = 被截断（见 stream.go 的完整性判定）。
-			if r := firstString(event, "stopReason", "stop_reason"); r != "" && cb.OnStopReason != nil {
-				cb.OnStopReason(r)
+			if r := firstString(event, "stopReason", "stop_reason"); r != "" {
+				stopSeen = true
+				if cb.OnStopReason != nil {
+					cb.OnStopReason(r)
+				}
 			}
 		}
 	}
@@ -168,6 +181,15 @@ func parseEventStream(body io.Reader, cb *streamCallbacks) (emitted bool, err er
 	}
 	if !sawOutput {
 		return emitted, errEmptyStream
+	}
+	// 上下文用满（>=100%）且上游没给结束原因：输出是被窗口截断的，按长度截断收尾而不是当成流中断。
+	if !stopSeen && cb.OnStopReason != nil {
+		for _, p := range contextPcts {
+			if p >= 100 {
+				cb.OnStopReason("model_context_window_exceeded")
+				break
+			}
+		}
 	}
 	if cb.OnCredits != nil && totalCredits > 0 {
 		cb.OnCredits(totalCredits)
@@ -181,6 +203,10 @@ func parseEventStream(body io.Reader, cb *streamCallbacks) (emitted bool, err er
 		cb.OnComplete(inputTokens, outputTokens)
 	}
 	return emitted, nil
+}
+
+func isContentLengthExceeded(exceptionType string) bool {
+	return strings.Contains(strings.ToLower(exceptionType), "contentlengthexceeded")
 }
 
 func be32(b []byte) uint32 {

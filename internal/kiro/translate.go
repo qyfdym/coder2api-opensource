@@ -201,8 +201,13 @@ var modelAliases = []struct{ key, value string }{
 }
 
 // claudeVersionPattern claude-{family}-N-M → claude-{family}-N.M（次版本 1–2 位，带 \b，
-// 避免把 claude-sonnet-4-20250514 这类日期快照误改）。
-var claudeVersionPattern = regexp.MustCompile(`claude-(opus|sonnet|haiku)-(\d+)-(\d{1,2})\b`)
+// 避免把 claude-sonnet-4-20250514 这类日期快照误改）。fable 是 Kiro 目录里的新系列
+// （claude-fable-5.1，上游只认带点的写法）。
+var claudeVersionPattern = regexp.MustCompile(`claude-(opus|sonnet|haiku|fable)-(\d+)-(\d{1,2})\b`)
+
+// claudeDateSuffix Anthropic 的日期快照后缀（claude-sonnet-4-5-20250929）：Kiro 目录里没有带日期的 id，
+// 去掉后按版本号归一（claude-sonnet-4-5-20250929 → claude-sonnet-4.5）。
+var claudeDateSuffix = regexp.MustCompile(`-20\d{6}$`)
 
 // ParseModel 解析客户端模型名：去掉思考后缀（返回 thinking=true），做别名与版本号归一。
 func ParseModel(model, thinkingSuffix string) (kiroModel string, thinking bool) {
@@ -217,6 +222,9 @@ func ParseModel(model, thinkingSuffix string) (kiroModel string, thinking bool) 
 		if strings.Contains(lower, a.key) {
 			return a.value, thinking
 		}
+	}
+	if strings.HasPrefix(lower, "claude-") {
+		lower = claudeDateSuffix.ReplaceAllString(lower, "")
 	}
 	if claudeVersionPattern.MatchString(lower) {
 		return claudeVersionPattern.ReplaceAllString(lower, "claude-$1-$2.$3"), thinking
@@ -643,8 +651,14 @@ func ensureObjectSchema(schema any) any {
 	}
 	c := cloneSchemaMap(m)
 	cleanSchema(c)
-	if _, has := c["type"]; !has {
+	// 顶层 type 必须是非空字符串、properties 必须是对象（MCP 工具偶尔给出 null，上游会 400）。
+	if t, ok := c["type"].(string); !ok || strings.TrimSpace(t) == "" {
 		c["type"] = "object"
+	}
+	if p, has := c["properties"]; has {
+		if _, ok := p.(map[string]any); !ok {
+			c["properties"] = map[string]any{}
+		}
 	}
 	return c
 }
@@ -672,27 +686,41 @@ func cloneSchemaValue(v any) any {
 	}
 }
 
-// cleanSchema 递归删掉会让 Kiro 400 的字段：additionalProperties、空 / 非数组的 required。
+// schemaMapKeywords 值是「名字 → 子 schema」映射的关键字：映射本身不是 schema，名字可以是任何词
+// （包括 required / additionalProperties），只清理映射里的每个子 schema。
+var schemaMapKeywords = map[string]bool{
+	"properties": true, "patternProperties": true, "$defs": true, "definitions": true, "dependentSchemas": true,
+}
+
+// schemaDataKeywords 值是数据而不是 schema 的关键字，原样保留。
+var schemaDataKeywords = map[string]bool{"default": true, "enum": true, "const": true, "examples": true, "example": true}
+
+// cleanSchema 递归清理会让 Kiro 400 的内容：删掉 additionalProperties；required 只保留字符串名字，
+// 没有名字（空 / null / 非数组）就整个删掉。
 func cleanSchema(m map[string]any) {
 	delete(m, "additionalProperties")
 	if req, ok := m["required"]; ok {
-		switch arr := req.(type) {
-		case []any:
-			if len(arr) == 0 {
-				delete(m, "required")
-			}
-		case []string:
-			if len(arr) == 0 {
-				delete(m, "required")
-			}
-		default:
+		if names := requiredNames(req); len(names) > 0 {
+			m["required"] = names
+		} else {
 			delete(m, "required")
 		}
 	}
-	for _, v := range m {
+	for k, v := range m {
+		if k == "required" || schemaDataKeywords[k] {
+			continue
+		}
 		switch t := v.(type) {
 		case map[string]any:
-			cleanSchema(t)
+			if schemaMapKeywords[k] {
+				for _, sub := range t {
+					if s, ok := sub.(map[string]any); ok {
+						cleanSchema(s)
+					}
+				}
+			} else {
+				cleanSchema(t)
+			}
 		case []any:
 			for _, x := range t {
 				if sub, ok := x.(map[string]any); ok {
@@ -701,6 +729,26 @@ func cleanSchema(m map[string]any) {
 			}
 		}
 	}
+}
+
+// requiredNames required 里的字符串名字（其它类型的元素和非数组一律丢弃）。
+func requiredNames(v any) []any {
+	var out []any
+	switch arr := v.(type) {
+	case []any:
+		for _, x := range arr {
+			if s, ok := x.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+	case []string:
+		for _, s := range arr {
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
 }
 
 func normalizeToolDesc(desc, name string) string {

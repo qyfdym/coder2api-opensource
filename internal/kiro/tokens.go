@@ -101,7 +101,7 @@ func contextWindow(model string) int {
 	return 200_000
 }
 
-var claudeVersionExtractor = regexp.MustCompile(`claude-(?:opus|sonnet|haiku)-(\d+)(?:[.-](\d+))?`)
+var claudeVersionExtractor = regexp.MustCompile(`claude-(?:opus|sonnet|haiku|fable)-(\d+)(?:[.-](\d+))?`)
 
 func isLargeContextModel(model string) bool {
 	m := strings.ToLower(model)

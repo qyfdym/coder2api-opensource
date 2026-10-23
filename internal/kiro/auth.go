@@ -44,8 +44,37 @@ func (c *Client) oidcBase(region string) string {
 
 const socialRefreshURL = "https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken"
 
+// oidcSDKVersion Kiro IDE 调 AWS SSO OIDC 时 aws-sdk-js 的版本（出现在 User-Agent 里）。
+const oidcSDKVersion = "3.980.0"
+
+// setAuthHeaders 令牌 / 设备授权请求的客户端标识，与 Kiro IDE 自己发出的形态一致：
+// 不设的话 Go 会带上 Go-http-client 的默认 User-Agent，在大批账号定期刷新时是一个很显眼的非 Kiro 特征。
+// machineID 非空时附在 Kiro 桌面认证的 User-Agent 后（与推理请求的机器标识一致）。
+func (c *Client) setAuthHeaders(req *http.Request, machineID string) {
+	host := strings.ToLower(req.URL.Hostname())
+	switch {
+	case strings.HasSuffix(host, ".auth.desktop.kiro.dev"):
+		ua := "KiroIDE-" + c.opts.KiroVersion
+		if id := strings.TrimSpace(machineID); id != "" {
+			ua += "-" + id
+		}
+		req.Header.Set("User-Agent", ua)
+	case strings.HasPrefix(host, "oidc.") && strings.HasSuffix(host, ".amazonaws.com"):
+		req.Header.Set("x-amz-user-agent", "aws-sdk-js/"+oidcSDKVersion+" KiroIDE")
+		req.Header.Set("User-Agent", fmt.Sprintf("aws-sdk-js/%s ua/2.1 os/%s lang/js md/nodejs#%s api/sso-oidc#%s m/E KiroIDE",
+			oidcSDKVersion, c.opts.SystemVersion, c.opts.NodeVersion, oidcSDKVersion))
+		req.Header.Set("amz-sdk-invocation-id", newUUID())
+		req.Header.Set("amz-sdk-request", "attempt=1; max=4")
+	}
+}
+
 // postJSON 发一个 JSON POST，返回状态码与响应体（传输错误返回 err）。
 func (c *Client) postJSON(ctx context.Context, rawURL string, body any) (int, []byte, error) {
+	return c.postJSONAs(ctx, rawURL, body, "")
+}
+
+// postJSONAs 同 postJSON，并按账号的机器标识设置客户端标识头。
+func (c *Client) postJSONAs(ctx context.Context, rawURL string, body any, machineID string) (int, []byte, error) {
 	raw, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, bytes.NewReader(raw))
 	if err != nil {
@@ -53,6 +82,7 @@ func (c *Client) postJSON(ctx context.Context, rawURL string, body any) (int, []
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	c.setAuthHeaders(req, machineID)
 	resp, err := c.auth.Do(req)
 	if err != nil {
 		return 0, nil, err
@@ -89,7 +119,7 @@ func (c *Client) Refresh(ctx context.Context, cred Cred) (TokenSet, *Error) {
 			"refreshToken": cred.RefreshToken, "grantType": "refresh_token",
 		}
 	}
-	status, raw, err := c.postJSON(ctx, target, body)
+	status, raw, err := c.postJSONAs(ctx, target, body, cred.MachineID)
 	if err != nil {
 		return TokenSet{}, transportError(err)
 	}

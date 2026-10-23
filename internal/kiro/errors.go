@@ -23,7 +23,7 @@ var (
 	}
 	tooLargeMarkers = []string{
 		"content_length_exceeds_threshold", "input is too long", "prompt is too long",
-		"context length", "context_window_exceeded",
+		"context length", "context_window_exceeded", "contentlengthexceeded",
 	}
 	modelMarkers = []string{
 		"invalid_model_id", "model is not supported", "unsupported model", "model not found",
