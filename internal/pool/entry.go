@@ -104,6 +104,11 @@ type Status struct {
 	AuthKind string `json:"auth_kind,omitempty"`
 	// Overage 仅 Kiro：超额（额度用完后按量计费）开关，ENABLED / DISABLED / 空 = 未知。
 	Overage string `json:"overage,omitempty"`
+	// Proxy / ProxyKind / ProxyDown 仅 Kiro：账号当前实际使用的出口（脱敏后的地址、来源、是否连不上），
+	// 由面板按 Kiro 客户端的选择结果填充（账号池本身不知道代理池）。
+	Proxy     string `json:"proxy,omitempty"`
+	ProxyKind string `json:"proxy_kind,omitempty"`
+	ProxyDown bool   `json:"proxy_down,omitempty"`
 	// Enterprise 企业版账号（auth.EnterpriseID 非空，计算值不落盘）。
 	// 企业版无个人成长体系（签到/成长任务/连登/旅行/夜猫子 上游均拒），
 	// 面板据此隐藏对应按钮；选号、保活、额度展示不受影响。

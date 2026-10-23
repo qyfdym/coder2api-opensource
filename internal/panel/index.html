@@ -1365,7 +1365,7 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
             <div class="grid2">
               <label class="fld"><span class="lb">出站代理</span>
                 <input name="kiro_proxy_url" placeholder="留空 = 跟随 HTTPS_PROXY 环境变量" autocomplete="off" spellcheck="false">
-                <span class="hint">http:// / https:// / socks5://；需重启</span></label>
+                <span class="hint">http:// / https:// / socks5://；需重启。Kiro 需要海外出口 IP 才有 Claude；多个代理用 config.json 的 kiro.proxy_pool，单个账号用账号行的「代理」按钮</span></label>
               <label class="fld"><span class="lb">Kiro IDE 版本（User-Agent）</span>
                 <input name="kiro_version" placeholder="留空 = 内置默认" autocomplete="off" spellcheck="false">
                 <span class="hint">需重启</span></label>

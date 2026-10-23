@@ -57,6 +57,7 @@ func Cred(a *auth.Auth) kiro.Cred {
 		StartURL:     m.StartURL,
 		ProfileArn:   m.ProfileArn,
 		MachineID:    m.MachineID,
+		ProxyURL:     m.ProxyURL,
 		APIKey:       m.APIKey,
 
 		TokenEndpoint: m.TokenEndpoint,

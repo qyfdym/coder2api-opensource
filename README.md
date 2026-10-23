@@ -155,9 +155,19 @@ Kiro 协议由 Go 原生实现（`internal/kiro`，移植自 [Quorinex/Kiro-Go](
 
 导入时 OAuth 凭证先刷新一次、再查一次额度确认可用；同一个账号重复导入覆盖同一个文件（`auths/kiro-<uid>.json`）。账号池表格里用紫色「Kiro」徽标区分，副标题是身份来源与订阅档位（Builder ID / Identity Center / Google / GitHub / Microsoft / API Key）。
 
-**模型名**：`kiro:模型名`，例如 `kiro:claude-sonnet-4.5`（`claude-sonnet-4-5` 写法同样接受，带日期的 Anthropic 快照名如 `claude-sonnet-4-5-20250929` 会去掉日期后归一，`claude-fable-5-1` 归一为 `claude-fable-5.1`）；`GET /v1/models` 在池里有 Kiro 账号时列出 `kiro:` 条目（动态目录，拉不到时用内置目录）。目录由上游按账号的套餐返回，不同账号能用的模型不同：真机验证的学生版 Builder ID 账号当前可用 `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna`、`deepseek-3.2`、`glm-5`、`kimi-k3` 等，没有 Claude；请求不在账号目录里的模型会得到 `INVALID_MODEL_ID`，该模型在这个号上随即冷却，网关换号重试。池里有多个 Kiro 账号时，`/v1/models` 和「模型与档位」页显示各账号目录的**并集**（每个账号的目录单独缓存 30 分钟，一次最多补拉 4 个缺失 / 过期的账号），所以学生号和 Pro 号混用时，Claude 等只有部分账号能用的模型也会列出来。
+**模型名**：`kiro:模型名`，例如 `kiro:claude-sonnet-4.5`（`claude-sonnet-4-5` 写法同样接受，带日期的 Anthropic 快照名如 `claude-sonnet-4-5-20250929` 会去掉日期后归一，`claude-fable-5-1` 归一为 `claude-fable-5.1`）；`GET /v1/models` 在池里有 Kiro 账号时列出 `kiro:` 条目（动态目录，拉不到时用内置目录）。目录由上游按**出口 IP 的地区**（以及账号套餐）返回，见下面的「出站代理」：同一个账号，国内 IP 只有 `gpt-5.6-*`、`deepseek-3.2`、`glm-5`、`kimi-k3` 等 9 个非 Claude 模型，经美国代理则是含 `auto` 和全部 Claude 的 21 个（真机对比）。请求不在当前目录里的模型会得到 `INVALID_MODEL_ID`，该模型在这个号上随即冷却，网关换号重试。池里有多个 Kiro 账号时，`/v1/models` 和「模型与档位」页显示各账号目录的**并集**（每个账号的目录单独缓存 30 分钟，一次最多补拉 4 个缺失 / 过期的账号），所以账号走不同出口（或套餐不同）时，只有部分账号能用的模型也会列出来。
 
-**profileArn 与客户端版本号**：出站 User-Agent 里的 Kiro 版本号默认是当前 Kiro IDE 的 `1.3.11`。这个版本号下，推理请求和模型目录都必须带 `profileArn`（缺了推理返回 `profileArn is required for this request`，目录返回 400）。Builder ID 与社交登录账号使用 Kiro IDE 内置的固定 profile（首次使用时自动补进账号文件），企业账号（IAM Identity Center / Microsoft）通过 `ListAvailableProfiles` 获取。版本号还决定上游返回哪份模型目录：旧版本号（如 `0.11.107`）拿到的是一份没按账号授权过滤的目录，里面有账号用不了的模型（例如学生版没有的 Claude 和 `auto`），推理时会得到 `INVALID_MODEL_ID`。社交登录的固定 profile 取自 Kiro IDE 的代码，**未经真机验证**。
+**profileArn 与客户端版本号**：出站 User-Agent 里的 Kiro 版本号默认是当前 Kiro IDE 的 `1.3.11`。这个版本号下，推理请求和模型目录都必须带 `profileArn`（缺了推理返回 `profileArn is required for this request`，目录返回 400）。Builder ID 与社交登录账号使用 Kiro IDE 内置的固定 profile（首次使用时自动补进账号文件），企业账号（IAM Identity Center / Microsoft）通过 `ListAvailableProfiles` 获取。版本号还决定目录是否按出口地区过滤：旧版本号（如 `0.11.107`）在国内 IP 下拿到的目录里仍有 Claude 和 `auto`，但推理时会得到 `INVALID_MODEL_ID`；`1.3.11` 拿到的才是当前出口真正放行的模型。社交登录的固定 profile 取自 Kiro IDE 的代码，**未经真机验证**。
+
+**出站代理（Kiro 需要海外出口 IP 才有 Claude）**：Kiro 按出口 IP 的地区放出模型。真机对比同一个账号：国内 IP（中国移动）的目录没有 Claude，经美国代理（机房 IP 即可）有 21 个模型，Claude 聊天与思考档位都正常。所以部署在国内或其它被限制的地区时，Kiro 的请求要走海外代理。选择顺序：
+
+1. **账号自己的代理**：面板账号行的「代理」按钮，留空 = 自动，`direct` = 这个账号不走代理，或填 `http://` / `https://` / `socks5://` 地址（可带 `user:pass@`）。落盘在账号文件的 `proxyUrl`，面板和日志里只显示脱敏后的地址。
+2. **代理池** `kiro.proxy_pool`：没有自己代理的账号按账号稳定地分配到池里的一个成员（同一个账号总是同一个出口，池里增删成员只影响落在该成员上的账号）；该代理连不上（连续两次拨号 / 隧道失败）时顺延到这个账号偏好顺序里的下一个，一分钟后放请求试探、成功即恢复。池里全挂时请求直接失败，**不会**悄悄改走直连。
+3. **平台默认** `kiro.proxy_url`，再往下是环境变量 `HTTPS_PROXY`。
+
+一个账号的推理、刷新 token、额度、模型目录共用同一个出口。换出口后该账号缓存的模型目录与「模型不可用」冷却会立即作废，下次按新出口重拉。WorkBuddy 和 Qoder 仍只读环境变量，不受影响。
+
+**机场订阅**：网关只直接支持 `http` / `https` / `socks5` 代理地址，订阅里的 vmess / vless / trojan / ss / hysteria 等节点不能直接填。做法是在网关旁边跑一个本地代理内核（mihomo / Clash Meta、sing-box、xray 都行）加载订阅，让它在本机开一个 `http` / `socks5` 端口，再把这个端口填进 `kiro.proxy_url` 或 `kiro.proxy_pool`（本机已经在用 Clash 类客户端的话，它的混合端口就是现成的）。注意让内核**固定使用一个美国节点**（策略组选 `select`，不要 `url-test` / `load-balance` 自动切换），否则同一个账号的出口 IP 会来回变；想让不同账号走不同节点，就让内核给每个节点开一个独立端口，放进 `proxy_pool` 或在账号上单独指定。
 
 **思考强度**：Kiro 默认不思考，请求带以下任一写法即开启（显式关闭优先）：
 
@@ -190,7 +200,8 @@ Kiro 协议由 Go 原生实现（`internal/kiro`，移植自 [Quorinex/Kiro-Go](
 |---|---|---|
 | `kiro.enabled` | `true` | 关闭后 Kiro 账号仍在列表里但不参与选号，面板不提供 Kiro 添加入口 |
 | `kiro.endpoint` | `auto` | `auto` / `kiro` / `codewhisperer` / `amazonq`（指定者优先，其余作回退） |
-| `kiro.proxy_url` | 空 | Kiro 出站代理（`http://` / `https://` / `socks5://`）；空 = 跟随 `HTTPS_PROXY` |
+| `kiro.proxy_url` | 空 | Kiro 出站代理（`http://` / `https://` / `socks5://`，带端口）；空 = 跟随 `HTTPS_PROXY` |
+| `kiro.proxy_pool` | 空 | Kiro 代理池（地址列表，格式同上）：没有自己代理的账号按账号稳定分配到其中一个，连不上时顺延；优先于 `proxy_url`。改动需重启 |
 | `kiro.kiro_version` | 空 | 出站 User-Agent 里的 Kiro IDE 版本；空 = 内置默认（`1.3.11`） |
 | `kiro.header_timeout_seconds` | `120` | 推理请求等待响应头上限 |
 | `pool.strategy.kiro` / `pool.account_order.kiro` | `weighted_random` / 空 | Kiro 选号策略与账号顺序；热生效 |

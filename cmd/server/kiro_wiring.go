@@ -21,6 +21,7 @@ func buildKiro(cfg *Config) *kiroacct.Service {
 	client := kiro.NewClient(kiro.Options{
 		HeaderTimeout: time.Duration(cfg.Kiro.HeaderTimeoutSeconds) * time.Second,
 		ProxyURL:      cfg.Kiro.ProxyURL,
+		ProxyPool:     cfg.Kiro.ProxyPool,
 		Endpoint:      cfg.Kiro.Endpoint,
 		KiroVersion:   cfg.Kiro.KiroVersion,
 	})

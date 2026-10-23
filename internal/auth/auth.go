@@ -108,6 +108,9 @@ type KiroMeta struct {
 	ProfileArn string `json:"profileArn,omitempty"`
 	// MachineID 出站请求头里的机器标识（每号固定，首次建档时生成）。
 	MachineID string `json:"machineId,omitempty"`
+	// ProxyURL 这个账号自己的出站代理：空 = 按代理池 / 平台默认，"direct" = 不走代理。
+	// 可能带用户名密码，只落盘，不进面板接口与日志（显示一律脱敏）。
+	ProxyURL string `json:"proxyUrl,omitempty"`
 	// APIKey ksk_ 开头的 Kiro API Key（api_key 账号；与 accessToken 同值）。
 	APIKey string `json:"kiroApiKey,omitempty"`
 	Email  string `json:"email,omitempty"`

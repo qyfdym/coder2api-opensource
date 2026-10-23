@@ -22,6 +22,9 @@ type Options struct {
 	HeaderTimeout time.Duration
 	// ProxyURL 出站代理（http:// / socks5://）；空 = 跟随环境变量 HTTPS_PROXY。
 	ProxyURL string
+	// ProxyPool 代理池：非空时没有自己代理的账号按账号稳定分配到池里的一个成员，连不上时顺延
+	// （选择规则见 proxy.go）；优先于 ProxyURL。
+	ProxyPool []string
 	// Endpoint 推理入口偏好：auto（缺省，Kiro IDE → CodeWhisperer → AmazonQ 依次回退）/
 	// kiro / codewhisperer / amazonq（指定者优先，其余作回退）。
 	Endpoint string
@@ -33,7 +36,7 @@ type Options struct {
 	ThinkingSuffix string
 	// ModelCacheTTL 动态模型目录的缓存时长；<=0 回落 30 分钟。
 	ModelCacheTTL time.Duration
-	// Transport 覆盖底层 RoundTripper（测试注入假上游用）；nil = 按 ProxyURL 构建。
+	// Transport 覆盖底层 RoundTripper（测试注入假上游用）；nil = 按代理配置构建。
 	Transport http.RoundTripper
 	// Sleep 覆盖轮询等待（测试注入空实现，免得单测真等几秒）；nil = 真实等待。
 	Sleep func(ctx context.Context, d time.Duration) error
@@ -43,10 +46,13 @@ type Options struct {
 
 // Client Kiro 协议客户端（进程内单例，并发安全）。
 type Client struct {
-	opts   Options
-	stream *http.Client // 推理流：无整体超时（靠 ctx + 响应头超时 + 网关空闲看门狗）
-	rest   *http.Client // 额度 / 模型 / profile 查询
-	auth   *http.Client // 刷新 / 登录
+	opts Options
+
+	// pool 规范化后的代理池；health 各代理的连通状态；sets 按出口缓存的 HTTP 客户端（见 proxy.go）。
+	pool   []string
+	health *proxyHealth
+	setsMu sync.Mutex
+	sets   map[string]*httpSet
 
 	models modelCache
 
@@ -73,10 +79,10 @@ func (c *Client) wait(ctx context.Context, d time.Duration) error {
 }
 
 const (
-	// defaultKiroVersion 当前 Kiro IDE 的版本号（本机安装的 1.3.11）。真机对比（同一账号、同一机器标识）：
-	// 0.11.107 调 ListAvailableModels 拿到 21 个模型的目录（含 auto / Claude，这个学生版 Builder ID
-	// 号用它们推理会被 INVALID_MODEL_ID 拒绝），1.3.11 拿到的是账号真正可用的 9 个；
-	// 1.3.11 同时要求推理与目录请求带 profileArn。
+	// defaultKiroVersion 当前 Kiro IDE 的版本号（本机安装的 1.3.11）。1.3.11 要求推理与目录请求带
+	// profileArn；上游也按版本号决定目录是否按出口地区过滤：真机对比（同一账号），国内 IP 下
+	// 0.11.107 拿到 21 个模型的目录（含 auto / Claude，推理时被 INVALID_MODEL_ID 拒绝），
+	// 1.3.11 拿到的是当前出口真正放行的 9 个（没有 Claude）；经美国代理则是含 Claude 的 21 个。
 	defaultKiroVersion   = "1.3.11"
 	defaultNodeVersion   = "22.22.0"
 	defaultHeaderTimeout = 120 * time.Second
@@ -108,18 +114,14 @@ func NewClient(opts Options) *Client {
 	if opts.Endpoint == "" {
 		opts.Endpoint = "auto"
 	}
-	c := &Client{opts: opts, sleep: opts.Sleep}
-	streamRT := opts.Transport
-	restRT := opts.Transport
-	if streamRT == nil {
-		st := buildTransport(opts.ProxyURL)
-		st.ResponseHeaderTimeout = opts.HeaderTimeout
-		streamRT = st
-		restRT = buildTransport(opts.ProxyURL)
+	c := &Client{opts: opts, sleep: opts.Sleep, health: newProxyHealth()}
+	seen := map[string]bool{}
+	for _, p := range opts.ProxyPool {
+		if n, err := NormalizeProxyURL(p); err == nil && n != "" && !strings.EqualFold(n, ProxyDirect) && !seen[n] {
+			seen[n] = true
+			c.pool = append(c.pool, n)
+		}
 	}
-	c.stream = &http.Client{Transport: streamRT}
-	c.rest = &http.Client{Transport: restRT, Timeout: 30 * time.Second}
-	c.auth = &http.Client{Transport: restRT, Timeout: 30 * time.Second}
 	return c
 }
 

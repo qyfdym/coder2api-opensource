@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/linguo2625469/workbuddy2api-panel/internal/kiro"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/pool"
 	"github.com/linguo2625469/workbuddy2api-panel/internal/prompt"
 )
@@ -71,6 +72,10 @@ type Config struct {
 		Endpoint string `json:"endpoint"`
 		// ProxyURL Kiro 出站代理（http:// / https:// / socks5://）；空 = 跟随 HTTPS_PROXY 环境变量。
 		ProxyURL string `json:"proxy_url"`
+		// ProxyPool Kiro 代理池：非空时，没有自己代理的账号按账号稳定分配到池里的一个成员，
+		// 该成员连不上时顺延到下一个（优先于 proxy_url）。账号也可以在面板里单独指定代理或直连。
+		// Kiro 按出口 IP 的地区放出模型（国内 IP 没有 Claude），出口需要是海外 IP。
+		ProxyPool []string `json:"proxy_pool"`
 		// KiroVersion 出站 User-Agent 里的 Kiro IDE 版本；空 = 内置默认。
 		KiroVersion string `json:"kiro_version"`
 		// HeaderTimeoutSeconds 推理请求等待响应头上限；<=0 回落 120。
@@ -844,11 +849,24 @@ func (c *Config) normalizeKiro() error {
 	default:
 		return fmt.Errorf("kiro.endpoint: %q 不是合法值（auto / kiro / codewhisperer / amazonq）", c.Kiro.Endpoint)
 	}
-	c.Kiro.ProxyURL = strings.TrimSpace(c.Kiro.ProxyURL)
-	if p := strings.ToLower(c.Kiro.ProxyURL); p != "" &&
-		!strings.HasPrefix(p, "http://") && !strings.HasPrefix(p, "https://") && !strings.HasPrefix(p, "socks5://") {
-		return fmt.Errorf("kiro.proxy_url: %q 必须是 http:// / https:// / socks5:// 地址", c.Kiro.ProxyURL)
+	proxy, err := kiro.NormalizeProxyURL(c.Kiro.ProxyURL)
+	if err != nil || strings.EqualFold(proxy, kiro.ProxyDirect) {
+		return fmt.Errorf("kiro.proxy_url: %q 必须是 http:// / https:// / socks5:// 地址（带端口）", kiro.MaskProxyURL(c.Kiro.ProxyURL))
 	}
+	c.Kiro.ProxyURL = proxy
+	var pool []string
+	seen := map[string]bool{}
+	for _, raw := range c.Kiro.ProxyPool {
+		p, err := kiro.NormalizeProxyURL(raw)
+		if err != nil || p == "" || strings.EqualFold(p, kiro.ProxyDirect) {
+			return fmt.Errorf("kiro.proxy_pool: %q 必须是 http:// / https:// / socks5:// 地址（带端口）", kiro.MaskProxyURL(raw))
+		}
+		if !seen[p] {
+			seen[p] = true
+			pool = append(pool, p)
+		}
+	}
+	c.Kiro.ProxyPool = pool
 	c.Kiro.KiroVersion = strings.TrimSpace(c.Kiro.KiroVersion)
 	if c.Kiro.HeaderTimeoutSeconds <= 0 {
 		c.Kiro.HeaderTimeoutSeconds = 120

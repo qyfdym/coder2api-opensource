@@ -70,11 +70,11 @@ func (c *Client) setAuthHeaders(req *http.Request, machineID string) {
 
 // postJSON 发一个 JSON POST，返回状态码与响应体（传输错误返回 err）。
 func (c *Client) postJSON(ctx context.Context, rawURL string, body any) (int, []byte, error) {
-	return c.postJSONAs(ctx, rawURL, body, "")
+	return c.postJSONAs(ctx, rawURL, body, Cred{})
 }
 
-// postJSONAs 同 postJSON，并按账号的机器标识设置客户端标识头。
-func (c *Client) postJSONAs(ctx context.Context, rawURL string, body any, machineID string) (int, []byte, error) {
+// postJSONAs 同 postJSON，并按账号设置客户端标识头（机器标识）与出口（账号的代理）。
+func (c *Client) postJSONAs(ctx context.Context, rawURL string, body any, cred Cred) (int, []byte, error) {
 	raw, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, bytes.NewReader(raw))
 	if err != nil {
@@ -82,8 +82,8 @@ func (c *Client) postJSONAs(ctx context.Context, rawURL string, body any, machin
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	c.setAuthHeaders(req, machineID)
-	resp, err := c.auth.Do(req)
+	c.setAuthHeaders(req, cred.MachineID)
+	resp, err := c.authFor(cred).Do(req)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -119,7 +119,7 @@ func (c *Client) Refresh(ctx context.Context, cred Cred) (TokenSet, *Error) {
 			"refreshToken": cred.RefreshToken, "grantType": "refresh_token",
 		}
 	}
-	status, raw, err := c.postJSONAs(ctx, target, body, cred.MachineID)
+	status, raw, err := c.postJSONAs(ctx, target, body, cred)
 	if err != nil {
 		return TokenSet{}, transportError(err)
 	}

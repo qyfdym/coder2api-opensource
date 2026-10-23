@@ -36,8 +36,9 @@ var fallbackModels = []Model{
 
 // modelCache 动态目录缓存：按账号分别缓存，对外是所有账号目录的并集。
 //
-// 上游按账号的套餐 / 授权返回目录（真机：学生版 Builder ID 号没有 Claude），所以不能用任意一个
-// 账号的目录代表全池：池里同时有学生号和 Pro 号时，并集才是网关实际能服务的模型。
+// 上游按账号的出口 IP 地区与套餐返回目录（真机：同一个账号，国内 IP 只有 9 个非 Claude 模型，
+// 经美国代理是含 Claude 的 21 个），所以不能用任意一个账号的目录代表全池：账号走不同出口、
+// 套餐不同时，并集才是网关实际能服务的模型。
 // 个别号不能用的模型由上游的模型错误（INVALID_MODEL_ID）+ 模型级冷却兜住，换号重试。
 type modelCache struct {
 	mu     sync.Mutex
@@ -64,6 +65,17 @@ func (c *Client) CachedModels() []Model {
 		return append([]Model(nil), c.models.merged...)
 	}
 	return FallbackModels()
+}
+
+// InvalidateCatalog 丢弃该账号缓存的目录并重算全池目录：账号换了出口 IP（目录按出口地区过滤）后，
+// 之前拉到的目录不再代表它现在能用的模型，下次访问时重拉。
+func (c *Client) InvalidateCatalog(uid string) {
+	c.models.mu.Lock()
+	defer c.models.mu.Unlock()
+	if _, ok := c.models.byUID[uid]; ok {
+		delete(c.models.byUID, uid)
+		c.models.rebuildLocked()
+	}
 }
 
 // HasCatalog 该账号是否拉过目录（不论是否过期）。

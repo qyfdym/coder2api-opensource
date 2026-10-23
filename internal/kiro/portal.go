@@ -380,7 +380,7 @@ func (c *Client) portalSecondLeg(ctx context.Context, s *PortalSession, raw stri
 	form.Set("redirect_uri", portalRedirectBase+portalOAuthPath)
 	form.Set("code_verifier", leg.Verifier)
 	form.Set("scope", leg.Scopes)
-	tok, kerr := c.postIdpToken(ctx, leg.TokenEndpoint, leg.IssuerURL, form)
+	tok, kerr := c.postIdpToken(ctx, Cred{}, leg.TokenEndpoint, leg.IssuerURL, form)
 	if kerr != nil {
 		if kerr.Kind != KindTransport {
 			s.retireLocked() // 授权码已作废

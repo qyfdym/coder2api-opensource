@@ -227,7 +227,7 @@ func (c *Client) ssoDo(ctx context.Context, method, rawURL, bearer, referer stri
 	if referer != "" {
 		req.Header.Set("Referer", referer)
 	}
-	resp, err := c.noRedirect().Do(req)
+	resp, err := c.noRedirect(Cred{}).Do(req)
 	if err != nil {
 		return 0, nil, err
 	}

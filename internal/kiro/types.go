@@ -49,6 +49,8 @@ type Cred struct {
 	MachineID  string
 	// APIKey ksk_ 密钥（api_key 账号）。
 	APIKey string
+	// ProxyURL 账号自己的出站代理；空 = 按代理池 / 平台默认，"direct" = 不走代理（见 proxy.go）。
+	ProxyURL string
 }
 
 // IsExternalIDP 报告是否为 Microsoft 企业 SSO（external_idp）账号。

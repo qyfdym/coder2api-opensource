@@ -243,6 +243,7 @@ func (p *Panel) routes() {
 	p.mux.HandleFunc("POST /panel/api/kiro/login/portal/select", p.withAuth(p.kiroPortalSelect))
 	p.mux.HandleFunc("GET /panel/api/kiro/accounts/{uid}/overage", p.withAuth(p.kiroOverageGet))
 	p.mux.HandleFunc("POST /panel/api/kiro/accounts/{uid}/overage", p.withAuth(p.kiroOverageSet))
+	p.mux.HandleFunc("POST /panel/api/kiro/accounts/{uid}/proxy", p.withAuth(p.kiroProxySet))
 }
 
 // ServeHTTP 统一入口：先写安全响应头再分发，保证页面、静态资源、API
@@ -321,7 +322,7 @@ func (p *Panel) overview(w http.ResponseWriter, r *http.Request) {
 		"disabled":        disabled,
 		"paused":          paused,
 		"in_flight_full":  inFlightFull,
-		"accounts":        p.cfg.Pool.List(),
+		"accounts":        p.listAccounts(),
 		// model_locks 模型级限流全清单（哪些模型不能用、锁了几个号、还要锁多久）：
 		// 与 accounts 的账号池视图互补，前端「模型锁池」表直接渲染。无锁时为 null。
 		"model_locks": p.cfg.Pool.ModelLockView(),
@@ -860,7 +861,7 @@ func (p *Panel) balanceAll(w http.ResponseWriter, r *http.Request) {
 	p.cfg.Scheduler.RunBalanceRefreshNow()
 	p.syncNicknames()
 	log.Printf("panel: 手动全量余额刷新完成")
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "accounts": p.cfg.Pool.List()})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "accounts": p.listAccounts()})
 }
 
 // compensation 查询全部账号的补偿活动状态（**只读**，不发起任何领取）。

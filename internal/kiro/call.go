@@ -137,7 +137,7 @@ endpoints:
 			req.Header.Set("Amz-Sdk-Request", fmt.Sprintf("attempt=%d; max=%d", attempt, maxStreamAttemptsPerEndpoint))
 			req.Header.Set("Amz-Sdk-Invocation-Id", invocation)
 
-			resp, err := c.stream.Do(req)
+			resp, err := c.streamFor(cred).Do(req)
 			if err != nil {
 				last = transportError(err)
 				if !retryableTransport(err) || ctx.Err() != nil {

@@ -296,8 +296,8 @@ func externalIdpIdentity(accessToken string) (email, userID string) {
 // ---------------------------------------------------------------------------
 
 // noRedirect IdP 调用的 HTTP 客户端：不跟随重定向（重定向可能把 token 带去别的主机）。
-func (c *Client) noRedirect() *http.Client {
-	cl := *c.auth
+func (c *Client) noRedirect(cred Cred) *http.Client {
+	cl := *c.authFor(cred)
 	cl.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &cl
 }
@@ -319,7 +319,7 @@ func idpDesc(s string) string {
 }
 
 // postIdpToken 向租户 token 端点提交表单（authorization_code 或 refresh_token）。
-func (c *Client) postIdpToken(ctx context.Context, tokenEndpoint, issuerURL string, form url.Values) (*idpToken, *Error) {
+func (c *Client) postIdpToken(ctx context.Context, cred Cred, tokenEndpoint, issuerURL string, form url.Values) (*idpToken, *Error) {
 	if err := ValidateExternalIdpEndpoint(tokenEndpoint); err != nil {
 		return nil, &Error{Kind: KindSessionDead, Msg: "外部身份源 token 端点被拒绝：" + err.Error()}
 	}
@@ -338,7 +338,7 @@ func (c *Client) postIdpToken(ctx context.Context, tokenEndpoint, issuerURL stri
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
-	resp, err := c.noRedirect().Do(req)
+	resp, err := c.noRedirect(cred).Do(req)
 	if err != nil {
 		return nil, transportError(err)
 	}
@@ -382,7 +382,7 @@ func (c *Client) refreshExternalIdp(ctx context.Context, cred Cred) (TokenSet, *
 	form.Set("grant_type", "refresh_token")
 	form.Set("refresh_token", cred.RefreshToken)
 	form.Set("scope", scopes)
-	tok, kerr := c.postIdpToken(ctx, cred.TokenEndpoint, cred.IssuerURL, form)
+	tok, kerr := c.postIdpToken(ctx, cred, cred.TokenEndpoint, cred.IssuerURL, form)
 	if kerr != nil {
 		return TokenSet{}, kerr
 	}
@@ -404,7 +404,7 @@ func (c *Client) discoverMicrosoftOIDC(ctx context.Context, issuerURL string) (a
 		return "", "", &Error{Kind: KindBadRequest, Msg: err.Error()}
 	}
 	req.Header.Set("Accept", "application/json")
-	resp, err := c.noRedirect().Do(req)
+	resp, err := c.noRedirect(Cred{}).Do(req)
 	if err != nil {
 		return "", "", transportError(err)
 	}

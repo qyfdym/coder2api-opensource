@@ -1,0 +1,301 @@
+package kiro
+
+// 出站代理：账号级覆盖、代理池、平台默认。
+//
+// Kiro 按出口 IP 的地区决定放出哪些模型（真机：同一个账号，国内 IP 只有 9 个非 Claude 模型，
+// 经美国代理是 21 个含 Claude / auto），所以出口 IP 必须可控。选择顺序：
+//
+//  1. 账号自己设了代理 → 用它（"direct" = 这个账号不走代理，即使环境变量里配了）；
+//  2. 配了代理池 → 按账号稳定排序（rendezvous hash），取第一个健康的成员。同一个账号
+//     总是落在同一个代理上，池里增删成员只影响落在该成员上的账号；该代理连不上时顺延到
+//     排序里的下一个，恢复后自动回来。池里全挂时仍用排第一的（请求直接失败），
+//     绝不悄悄改走直连——直连出去的是另一个地区的 IP；
+//  3. 否则用平台默认（kiro.proxy_url，空 = 环境变量 HTTPS_PROXY）。
+//
+// 账号的所有出站请求（推理、刷新、额度、模型目录、profile）共用同一个选择结果。
+
+import (
+	"crypto/sha256"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"net/url"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+)
+
+// ProxyDirect 账号级代理的特殊值：这个账号不走任何代理。
+const ProxyDirect = "direct"
+
+const (
+	// proxyFailThreshold 连续这么多次连不上代理就暂时标记为不可用。
+	proxyFailThreshold = 2
+	// proxyDownFor 不可用的持续时间；到期后放一个请求试探，成功即恢复。
+	proxyDownFor = time.Minute
+)
+
+// NormalizeProxyURL 校验并规范化代理地址。"" = 未设置；"direct" = 不走代理；
+// 否则必须是 http / https / socks5 / socks5h 地址（可带 user:pass@）。
+func NormalizeProxyURL(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", nil
+	}
+	if strings.EqualFold(s, ProxyDirect) {
+		return ProxyDirect, nil
+	}
+	u, err := url.Parse(s)
+	if err != nil || u.Hostname() == "" {
+		return "", errors.New("代理地址格式不对，应为 http://host:port 或 socks5://host:port")
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https", "socks5", "socks5h":
+	default:
+		return "", fmt.Errorf("代理协议 %q 不支持，只支持 http / https / socks5", u.Scheme)
+	}
+	if u.Port() == "" {
+		return "", errors.New("代理地址缺少端口")
+	}
+	return s, nil
+}
+
+// MaskProxyURL 去掉用户名与密码，只留 scheme://host:port（面板 / 日志显示用）。
+func MaskProxyURL(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || strings.EqualFold(s, ProxyDirect) {
+		return s
+	}
+	u, err := url.Parse(s)
+	if err != nil || u.Host == "" {
+		return "（无效地址）"
+	}
+	return u.Scheme + "://" + u.Host
+}
+
+// ProxyInfo 账号当前实际使用的出口，供面板展示。
+type ProxyInfo struct {
+	// Kind account（账号自己设的）/ pool（代理池分配）/ default（kiro.proxy_url）/
+	// direct（显式直连）/ none（没配，跟随环境变量）。
+	Kind string
+	// Label 脱敏后的代理地址；direct / none 为空。
+	Label string
+	// Down 该代理最近连不上（池内会自动顺延到别的成员，账号级的不会）。
+	Down bool
+}
+
+// ---------------------------------------------------------------------------
+// 健康状态
+// ---------------------------------------------------------------------------
+
+type proxyState struct {
+	fails     int
+	downUntil time.Time
+}
+
+type proxyHealth struct {
+	mu  sync.Mutex
+	st  map[string]*proxyState
+	now func() time.Time
+}
+
+func newProxyHealth() *proxyHealth {
+	return &proxyHealth{st: map[string]*proxyState{}, now: time.Now}
+}
+
+// healthy 代理当前是否可用（不可用期满后视为可用，放请求去试探）。
+func (h *proxyHealth) healthy(key string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	s := h.st[key]
+	return s == nil || !h.now().Before(s.downUntil)
+}
+
+func (h *proxyHealth) failure(key string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	s := h.st[key]
+	if s == nil {
+		s = &proxyState{}
+		h.st[key] = s
+	}
+	s.fails++
+	if s.fails >= proxyFailThreshold {
+		s.downUntil = h.now().Add(proxyDownFor)
+	}
+}
+
+func (h *proxyHealth) success(key string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if s := h.st[key]; s != nil {
+		s.fails, s.downUntil = 0, time.Time{}
+	}
+}
+
+// isProxyFault 错误是否出在「连代理」这一段（拨号 / 隧道建立失败），而不是上游本身慢或报错。
+// net/http 把连接代理阶段的所有错误（含 CONNECT 被拒）包成 Op=proxyconnect 的 *net.OpError。
+func isProxyFault(err error) bool {
+	var oe *net.OpError
+	if errors.As(err, &oe) {
+		return oe.Op == "proxyconnect" || oe.Op == "dial"
+	}
+	return false
+}
+
+// healthRT 记录经某个代理的请求是否成功连上，供代理池顺延使用。
+type healthRT struct {
+	base http.RoundTripper
+	key  string
+	h    *proxyHealth
+}
+
+func (t healthRT) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := t.base.RoundTrip(r)
+	switch {
+	case err == nil:
+		t.h.success(t.key)
+	case isProxyFault(err) && r.Context().Err() == nil:
+		t.h.failure(t.key)
+	}
+	return resp, err
+}
+
+// ---------------------------------------------------------------------------
+// 选择
+// ---------------------------------------------------------------------------
+
+func rendezvousScore(key, proxy string) uint64 {
+	sum := sha256.Sum256([]byte(key + "\x00" + proxy))
+	return binary.BigEndian.Uint64(sum[:8])
+}
+
+// poolOrder 代理池按 key 的偏好顺序（得分高的在前）：同一个 key 总是同一个顺序。
+func poolOrder(pool []string, key string) []string {
+	out := append([]string(nil), pool...)
+	sort.SliceStable(out, func(i, j int) bool {
+		return rendezvousScore(key, out[i]) > rendezvousScore(key, out[j])
+	})
+	return out
+}
+
+func credKey(cred Cred) string {
+	if id := strings.TrimSpace(cred.MachineID); id != "" {
+		return id
+	}
+	return strings.TrimSpace(cred.UID)
+}
+
+// proxyFor 这个账号当前该走哪个出口："" = 平台默认，"direct" = 不走代理，其余是代理地址。
+func (c *Client) proxyFor(cred Cred) string {
+	if p := strings.TrimSpace(cred.ProxyURL); p != "" {
+		return p
+	}
+	if len(c.pool) == 0 {
+		return ""
+	}
+	order := poolOrder(c.pool, credKey(cred))
+	for _, p := range order {
+		if c.health.healthy(p) {
+			return p
+		}
+	}
+	return order[0]
+}
+
+// ProxyInfo 账号当前实际使用的出口（脱敏），供面板展示。
+func (c *Client) ProxyInfo(cred Cred) ProxyInfo {
+	key := c.proxyFor(cred)
+	switch {
+	case strings.EqualFold(key, ProxyDirect):
+		return ProxyInfo{Kind: "direct"}
+	case key == "":
+		if p := strings.TrimSpace(c.opts.ProxyURL); p != "" {
+			return ProxyInfo{Kind: "default", Label: MaskProxyURL(p)}
+		}
+		return ProxyInfo{Kind: "none"}
+	case strings.TrimSpace(cred.ProxyURL) != "":
+		return ProxyInfo{Kind: "account", Label: MaskProxyURL(key), Down: !c.health.healthy(key)}
+	default:
+		return ProxyInfo{Kind: "pool", Label: MaskProxyURL(key), Down: !c.health.healthy(key)}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 按出口缓存的 HTTP 客户端
+// ---------------------------------------------------------------------------
+
+// httpSet 一个出口对应的三个客户端。
+type httpSet struct {
+	stream *http.Client // 推理流：无整体超时（靠 ctx + 响应头超时 + 网关空闲看门狗）
+	rest   *http.Client // 额度 / 模型 / profile 查询
+	auth   *http.Client // 刷新 / 登录
+}
+
+// setFor 取（或建）某个出口的客户端集合。
+func (c *Client) setFor(key string) *httpSet {
+	c.setsMu.Lock()
+	defer c.setsMu.Unlock()
+	if s, ok := c.sets[key]; ok {
+		return s
+	}
+	s := c.buildSet(key)
+	if c.sets == nil {
+		c.sets = map[string]*httpSet{}
+	}
+	c.sets[key] = s
+	return s
+}
+
+func (c *Client) buildSet(key string) *httpSet {
+	var streamRT, restRT http.RoundTripper
+	if c.opts.Transport != nil {
+		streamRT, restRT = c.opts.Transport, c.opts.Transport
+	} else {
+		st, rt := transportFor(c.opts.ProxyURL, key), transportFor(c.opts.ProxyURL, key)
+		st.ResponseHeaderTimeout = c.opts.HeaderTimeout
+		streamRT, restRT = st, rt
+	}
+	if key != "" && !strings.EqualFold(key, ProxyDirect) {
+		streamRT = healthRT{base: streamRT, key: key, h: c.health}
+		restRT = healthRT{base: restRT, key: key, h: c.health}
+	}
+	return &httpSet{
+		stream: &http.Client{Transport: streamRT},
+		rest:   &http.Client{Transport: restRT, Timeout: 30 * time.Second},
+		auth:   &http.Client{Transport: restRT, Timeout: 30 * time.Second},
+	}
+}
+
+// transportFor 按出口 key 构建传输层：key 为空 = 平台默认（defaultProxy，空则环境变量），
+// "direct" = 强制不走代理，其余 = 指定代理。代理地址解析失败时请求直接报错，而不是悄悄走别的出口。
+func transportFor(defaultProxy, key string) *http.Transport {
+	switch {
+	case key == "":
+		return buildTransport(defaultProxy)
+	case strings.EqualFold(key, ProxyDirect):
+		t := buildTransport("")
+		t.Proxy = nil
+		return t
+	}
+	t := buildTransport("")
+	u, err := url.Parse(key)
+	if err != nil || u.Hostname() == "" {
+		t.Proxy = func(*http.Request) (*url.URL, error) {
+			return nil, fmt.Errorf("无效的代理地址 %s", MaskProxyURL(key))
+		}
+		return t
+	}
+	t.Proxy = http.ProxyURL(u)
+	// 部分 HTTP 代理对 h2 CONNECT 支持不好，走代理时固定 HTTP/1.1。
+	t.ForceAttemptHTTP2 = false
+	return t
+}
+
+// streamFor / restFor / authFor 账号的推理流 / 查询 / 登录客户端（出口按 proxyFor 选择）。
+func (c *Client) streamFor(cred Cred) *http.Client { return c.setFor(c.proxyFor(cred)).stream }
+func (c *Client) restFor(cred Cred) *http.Client   { return c.setFor(c.proxyFor(cred)).rest }
+func (c *Client) authFor(cred Cred) *http.Client   { return c.setFor(c.proxyFor(cred)).auth }

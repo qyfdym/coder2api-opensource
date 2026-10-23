@@ -96,6 +96,23 @@ func (p *Pool) Revive(uid string) bool {
 	return true
 }
 
+// ClearModelCooldowns 只清这个账号的模型级冷却（不动禁用 / 暂停 / 账号级冷却 / 熔断）。
+// 账号换了出口 IP 之后，按旧出口判出来的「这个模型对该号不可用」（例如国内 IP 下 Claude 的
+// INVALID_MODEL_ID）不再成立，需要立刻作废。uid 不存在返回 false。
+func (p *Pool) ClearModelCooldowns(uid string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	e, ok := p.byUID[uid]
+	if !ok {
+		return false
+	}
+	if len(e.modelCooldowns) > 0 {
+		e.modelCooldowns = nil
+		p.dirty.Store(true)
+	}
+	return true
+}
+
 // Pause 暂停选号：账号退出选号候选，但**照常参与**签到 / 活跃上报 / 保活 / 余额刷新。
 // 与 Disable 的区别：不写 reason、不清冷却域、不重置任何计数——账号是「临时让位」
 // 而非「判死」，故无需重登或人工解冻，Resume 即可立刻恢复。

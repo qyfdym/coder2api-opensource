@@ -120,7 +120,7 @@ func (c *Client) restDo(ctx context.Context, cred Cred, method, rawURL string, b
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := c.rest.Do(req)
+	resp, err := c.restFor(cred).Do(req)
 	if err != nil {
 		return nil, transportError(err)
 	}

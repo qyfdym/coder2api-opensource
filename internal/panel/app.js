@@ -415,6 +415,17 @@ function kiroAuthLabel(k) {
   return { BuilderId: 'Builder ID', Enterprise: 'Identity Center', Google: 'Google', Github: 'GitHub',
     Social: '社交登录', AzureAD: 'Microsoft 企业', APIKey: 'API Key' }[k] || (k ? String(k) : 'Kiro');
 }
+/* Kiro 账号当前实际使用的出口（地址已在服务端脱敏）。Kiro 按出口 IP 的地区放出模型，
+   所以这一行要一眼看得见：账号自己设的 / 代理池分配的 / 平台默认 / 直连；连不上的标红。 */
+const KIRO_PROXY_KIND = { account: '账号代理', pool: '代理池', default: '默认代理', direct: '直连' };
+function kiroProxyHTML(s) {
+  const kind = s && s.proxy_kind;
+  if (!kind || kind === 'none') return '';
+  const name = KIRO_PROXY_KIND[kind] || kind;
+  const text = name + (s.proxy ? ' ' + s.proxy : '');
+  const tip = s.proxy_down ? '代理最近连不上' + (kind === 'pool' ? '，已自动顺延到池里的下一个' : '') : '出站走这个出口';
+  return '<div class="sub" title="' + esc(tip) + '"' + (s.proxy_down ? ' style="color:var(--bad)"' : '') + '>' + esc(text) + (s.proxy_down ? ' · 不可用' : '') + '</div>';
+}
 /* 账号池「类型」列：平台徽标（WorkBuddy 蓝 / Qoder 绿 / Kiro 紫）+ 版本（国内 / 国际，企业版另注；
    Kiro 是身份来源 · 订阅档位）。 */
 function accTypeHTML(s) {
@@ -423,7 +434,7 @@ function accTypeHTML(s) {
     // 超额已开：额度用完后仍会放行并按量计费——要一眼看得见，免得忘了关。
     const od = s.overage === 'ENABLED'
       ? ' <span class="realm-tag od" title="超额已开启：额度用完后继续放行，超出部分按量计费">超额</span>' : '';
-    return '<span class="realm-tag kr">Kiro</span>' + od + '<div class="sub">' + esc(sub) + '</div>';
+    return '<span class="realm-tag kr">Kiro</span>' + od + '<div class="sub">' + esc(sub) + '</div>' + kiroProxyHTML(s);
   }
   const qd = isQoderAcct(s);
   const intl = s && (s.realm === 'global' || s.realm === 'qoder-intl');
@@ -544,6 +555,8 @@ function renderAccounts(all) {
         '<button class="xs ghost" data-a="balance" data-u="' + esc(s.uid) + '"' + (s.enterprise ? ' title="刷新企业版已分配额度（上游 get-enterprise-user-usage）"' : kr ? ' title="刷新 Kiro Credits（基础额度 + 试用 + 附加额度）"' : '') + '>' + (s.enterprise || kr ? '额度' : '余额') + '</button>' +
         // Kiro 超额开关：额度用完后是否继续放行并按量计费（会产生费用，点开后有确认）。
         (kr ? '<button class="xs ghost" data-a="overage" data-u="' + esc(s.uid) + '" title="查看 / 开关超额（额度用完后按量计费）">超额</button>' : '') +
+        // Kiro 出口代理：Kiro 按出口 IP 的地区放出模型（国内 IP 没有 Claude），可给单个账号指定代理或直连。
+        (kr ? '<button class="xs ghost" data-a="proxy" data-u="' + esc(s.uid) + '" title="设置这个账号的出站代理（留空 = 自动）">代理</button>' : '') +
         // 「任务」是 WorkBuddy 成长任务体系；Qoder 的活动与福利在任务中心的 Qoder tab，Kiro 没有任务体系。
         (s.enterprise || qd || kr ? '' :
           '<button class="xs ghost" data-a="tasks" data-u="' + esc(s.uid) + '">任务</button>') +
@@ -685,6 +698,8 @@ $('accBody').addEventListener('click', async ev => {
       openTasks(u);
     } else if (a === 'overage') {
       await kiroOverageToggle(u);
+    } else if (a === 'proxy') {
+      await kiroProxyEdit(u);
     } else if (a === 'remove') {
       const r = await api('accounts/' + encodeURIComponent(u) + '/remove', { method: 'POST' });
       toast(r.file_error ? '已移除（凭证文件删除失败：' + r.file_error + '）' : '已移除', 'ok');
@@ -3912,6 +3927,21 @@ function krLoginPollStart(intervalSec) {
     if (state === krLoginState) krLoginTimer = setTimeout(tick, wait * 1000);
   };
   krLoginTimer = setTimeout(tick, wait * 1000);
+}
+
+/* ── Kiro 账号出口代理 ─────────────────────────────────────────────────
+   留空 = 自动（config.kiro.proxy_pool 分配，没配池则用 kiro.proxy_url / 环境变量）；
+   direct = 这个账号不走代理；否则是 http:// https:// socks5:// 地址（可带 user:pass@）。
+   换出口后服务端会作废该账号缓存的模型目录与「模型不可用」冷却（目录按出口地区过滤）。 */
+async function kiroProxyEdit(uid) {
+  const cur = (typeof overviewData === 'object' && overviewData && Array.isArray(overviewData.accounts))
+    ? overviewData.accounts.find(x => x.uid === uid) : null;
+  const now = cur && cur.proxy_kind ? (KIRO_PROXY_KIND[cur.proxy_kind] || cur.proxy_kind) + (cur.proxy ? ' ' + cur.proxy : '') : '未知';
+  const v = prompt('设置这个账号的出站代理（当前：' + now + '）\n\n' +
+    '留空 = 自动（代理池 / 默认）\n输入 direct = 不走代理\n或输入代理地址，例如 http://127.0.0.1:7890 或 socks5://user:pass@host:1080', '');
+  if (v === null) return;
+  const d = await api('kiro/accounts/' + encodeURIComponent(uid) + '/proxy', { method: 'POST', body: JSON.stringify({ proxy_url: v.trim() }) });
+  toast('出口已更新：' + (KIRO_PROXY_KIND[d.proxy_kind] || d.proxy_kind || '自动') + (d.proxy ? ' ' + d.proxy : ''), 'ok');
 }
 
 /* ── Kiro 超额开关 ─────────────────────────────────────────────────────

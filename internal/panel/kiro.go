@@ -34,6 +34,65 @@ func (p *Panel) kiroEnabled(w http.ResponseWriter) bool {
 	return true
 }
 
+// listAccounts 账号池状态列表；Kiro 账号补上当前实际使用的出口（脱敏）。出口由 Kiro 客户端
+// 按账号 / 代理池 / 默认选出，账号池本身不知道，所以在面板这一层填。
+func (p *Panel) listAccounts() []pool.Status {
+	list := p.cfg.Pool.List()
+	if p.cfg.Kiro == nil || p.cfg.Kiro.Client == nil {
+		return list
+	}
+	for i := range list {
+		if list[i].Platform != auth.PlatformKiro {
+			continue
+		}
+		a := p.cfg.Pool.AuthByUID(list[i].UID)
+		if a == nil || !a.IsKiro() {
+			continue
+		}
+		info := p.cfg.Kiro.Client.ProxyInfo(kiroacct.Cred(a))
+		list[i].ProxyKind, list[i].Proxy, list[i].ProxyDown = info.Kind, info.Label, info.Down
+	}
+	return list
+}
+
+// kiroProxySet POST {"proxy_url": ""|"direct"|"<地址>"}：设置账号自己的出站代理。
+// 空 = 恢复自动（代理池 / 平台默认）；direct = 这个账号不走代理。
+// Kiro 按出口 IP 的地区放出模型，换出口后该账号缓存的模型目录与「模型不可用」冷却都按旧出口算的，一并作废。
+func (p *Panel) kiroProxySet(w http.ResponseWriter, r *http.Request) {
+	if !p.kiroEnabled(w) {
+		return
+	}
+	var req struct {
+		ProxyURL *string `json:"proxy_url"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+	if err := readJSONBody(r, &req); err != nil || req.ProxyURL == nil {
+		writeErr(w, http.StatusBadRequest, "请求体需要 {\"proxy_url\": \"...\"}（留空 = 恢复自动，direct = 不走代理）")
+		return
+	}
+	uid := r.PathValue("uid")
+	a := p.cfg.Pool.AuthByUID(uid)
+	if a == nil || !a.IsKiro() {
+		writeErr(w, http.StatusNotFound, "不是 Kiro 账号或账号不存在")
+		return
+	}
+	v, err := kiro.NormalizeProxyURL(*req.ProxyURL)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	a.UpdateKiro(func(m *auth.KiroMeta) { m.ProxyURL = v })
+	if err := a.SaveAtomic(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存账号失败："+err.Error())
+		return
+	}
+	p.cfg.Kiro.Client.InvalidateCatalog(uid)
+	p.cfg.Pool.ClearModelCooldowns(uid)
+	info := p.cfg.Kiro.Client.ProxyInfo(kiroacct.Cred(a))
+	log.Printf("panel: kiro proxy acct=%s -> %s %s", logfmt.Label(a.UID, a.Nickname), info.Kind, info.Label)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "proxy_kind": info.Kind, "proxy": info.Label, "proxy_down": info.Down})
+}
+
 func kiroAccountBrief(a *auth.Auth) map[string]any {
 	m := a.KiroMeta()
 	return map[string]any{
