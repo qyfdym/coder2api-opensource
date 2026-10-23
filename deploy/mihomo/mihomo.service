@@ -1,0 +1,35 @@
+# mihomo 作为 Kiro 出口代理的 systemd 服务（不用 Docker 时）。
+#
+# 安装（root，目录以 /opt/mihomo 为例）：
+#   mkdir -p /opt/mihomo && cd /opt/mihomo
+#   上传 mihomo（可执行文件）和 config.yaml（由 config.host.example.yaml 改名并填好订阅地址）到这里
+#   chmod +x /opt/mihomo/mihomo
+#   useradd -r -s /usr/sbin/nologin mihomo
+#   chown -R mihomo:mihomo /opt/mihomo
+#   cp mihomo.service /etc/systemd/system/mihomo.service
+#   systemctl daemon-reload && systemctl enable --now mihomo
+#   systemctl status mihomo               # 看是否 active (running)
+#   journalctl -u mihomo -n 50 --no-pager  # 看节点加载日志
+#
+# 验证（应显示一个海外国家，比如 US；这一步不通先别改网关配置）：
+#   curl -x http://127.0.0.1:7890 https://ipinfo.io/country
+#
+# 不想用 systemd 的话，宝塔「Supervisor 管理器」之类的守护工具里添加同样的启动命令也行：
+#   /opt/mihomo/mihomo -d /opt/mihomo
+
+[Unit]
+Description=mihomo (Kiro egress proxy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mihomo
+WorkingDirectory=/opt/mihomo
+ExecStart=/opt/mihomo/mihomo -d /opt/mihomo
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

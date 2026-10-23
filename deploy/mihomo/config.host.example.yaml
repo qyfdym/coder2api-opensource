@@ -1,0 +1,42 @@
+# Kiro 出口代理（mihomo / Clash Meta）—— 直接跑在服务器上（宝塔 / systemd，不用 Docker）。
+#
+# 用途：Kiro 只对海外出口 IP 放出 Claude，国内服务器要让 Kiro 的请求走海外节点。
+# 只有网关里的 Kiro 请求会经过它（config.json 里 kiro.proxy_url = http://127.0.0.1:7890）；
+# WorkBuddy / Qoder 不走这里，出口仍是服务器自己的 IP。
+#
+# 只监听本机 127.0.0.1，外部访问不到。这个文件里会有你的订阅地址，属于密钥，别外传。
+# 装法见同目录 mihomo.service 里的注释，或仓库 README 的「机场订阅」。
+
+mixed-port: 7890            # http + socks5 混合端口
+allow-lan: false            # 只监听本机
+bind-address: 127.0.0.1
+mode: rule
+log-level: info
+ipv6: false
+
+proxy-providers:
+  airport:
+    type: http
+    url: "把机场订阅地址填在这里"
+    path: ./proxy_providers/airport.yaml
+    interval: 3600
+    health-check:
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 300
+      lazy: true
+
+proxy-groups:
+  # fallback：一直用过滤后排第一的可用节点，它不通了才换下一个，恢复后换回来。
+  # 比自动测速切换稳定得多——同一个 Kiro 账号的出口 IP 不会频繁变。
+  # 想彻底钉死一个节点：把 type 改成 select，再用 mihomo 的控制接口手动选（或把 filter 写成那个节点的名字）。
+  - name: KIRO
+    type: fallback
+    use: [airport]
+    filter: "(?i)美国|US|United States"
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+    lazy: true
+
+rules:
+  - MATCH,KIRO
