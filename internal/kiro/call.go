@@ -79,10 +79,8 @@ func (c *Client) callUpstream(ctx context.Context, cred Cred, p *kiroPayload, cb
 	if cred.bearer() == "" {
 		return &Error{Kind: KindAuth, Msg: "账号没有可用的 access token"}
 	}
-	p.ProfileArn = ""
-	if !cred.IsAPIKey() {
-		p.ProfileArn = strings.TrimSpace(cred.ProfileArn)
-	}
+	// profileArn 必填（见 DefaultProfileArn）：账号自带的优先，否则用 Builder ID / 社交登录的固定值。
+	p.ProfileArn = effectiveProfileArn(cred)
 	// 响应里的工具名还原成客户端原名（出站时可能被缩短）。
 	if len(p.toolNameMap) > 0 && cb != nil && cb.OnToolUse != nil {
 		orig := cb.OnToolUse

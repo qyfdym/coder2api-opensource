@@ -103,7 +103,8 @@ func (s *Service) ChatStream(ctx context.Context, a *auth.Auth, body []byte) (io
 	return s.Client.ChatStream(ctx, Cred(a), body)
 }
 
-// ensureProfile 缺 profileArn 的账号补一个（尽力而为：失败不影响推理，Builder ID 账号没有也能用）。
+// ensureProfile 缺 profileArn 的账号补一个并落盘（尽力而为，失败不影响本次推理）：
+// Builder ID / 社交登录用固定值，企业账号查 ListAvailableProfiles。
 func (s *Service) ensureProfile(ctx context.Context, a *auth.Auth) {
 	m := a.KiroMeta()
 	if m.ProfileArn != "" || IsAPIKey(a) || s.Client == nil {

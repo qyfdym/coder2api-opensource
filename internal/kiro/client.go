@@ -73,7 +73,11 @@ func (c *Client) wait(ctx context.Context, d time.Duration) error {
 }
 
 const (
-	defaultKiroVersion   = "0.11.107"
+	// defaultKiroVersion 当前 Kiro IDE 的版本号（本机安装的 1.3.11）。真机对比（同一账号、同一机器标识）：
+	// 0.11.107 调 ListAvailableModels 拿到 21 个模型的目录（含 auto / Claude，这个学生版 Builder ID
+	// 号用它们推理会被 INVALID_MODEL_ID 拒绝），1.3.11 拿到的是账号真正可用的 9 个；
+	// 1.3.11 同时要求推理与目录请求带 profileArn。
+	defaultKiroVersion   = "1.3.11"
 	defaultNodeVersion   = "22.22.0"
 	defaultHeaderTimeout = 120 * time.Second
 	defaultModelCacheTTL = 30 * time.Minute
@@ -187,12 +191,17 @@ func applyBaseHeaders(req *http.Request, cred Cred, ua, amzUA string) {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 	req.Header.Del("TokenType")
+	req.Header.Del("tokenType")
 	req.Header.Del("tokentype")
-	if cred.IsAPIKey() {
+	switch {
+	case cred.IsAPIKey():
 		// 上游两种大小写都认；Kiro CLI 抓包是小写 tokentype。
 		req.Header.Set("tokentype", "API_KEY")
-	} else if strings.EqualFold(strings.TrimSpace(cred.AuthMethod), "external_idp") {
+	case strings.EqualFold(strings.TrimSpace(cred.AuthMethod), "external_idp"):
 		req.Header.Set("TokenType", "EXTERNAL_IDP")
+	case strings.EqualFold(strings.TrimSpace(cred.AuthMethod), "idc"):
+		// Kiro IDE 1.3.x 对 AWS IAM Identity Center / Builder ID 的 token 都带这个头（社交登录不带）。
+		req.Header.Set("TokenType", "SSO_OIDC")
 	}
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("x-amz-user-agent", amzUA)

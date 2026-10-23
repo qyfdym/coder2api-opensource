@@ -27,6 +27,41 @@ var (
 	profileRegions = []string{"us-east-1", "eu-central-1"}
 )
 
+// Kiro IDE 1.3.x 内置的固定 profile：Builder ID 与社交登录账号不查 ListAvailableProfiles，直接用这两个 ARN。
+//
+// 出站版本号是 1.3.x 时，推理请求（"profileArn is required for this request"）和模型目录
+// （400）都必须带 profileArn；0.11.x 版本号不带也能用，Kiro-Go 时代的代码因此没有这一步。
+const (
+	builderIDProfileArn = "arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX"
+	socialProfileArn    = "arn:aws:codewhisperer:us-east-1:699475941385:profile/EHGA3GRVQMUK"
+)
+
+// DefaultProfileArn 账号类型对应的固定 profileArn（Builder ID / 社交登录）；企业账号与 API Key 返回空，
+// 企业账号要用 ListAvailableProfiles 查（见 ResolveProfileArn）。
+func DefaultProfileArn(cred Cred) string {
+	switch {
+	case cred.IsAPIKey():
+		return ""
+	case strings.EqualFold(strings.TrimSpace(cred.Provider), "BuilderId"):
+		return builderIDProfileArn
+	case strings.EqualFold(strings.TrimSpace(cred.AuthMethod), "social"):
+		return socialProfileArn
+	}
+	return ""
+}
+
+// effectiveProfileArn 请求实际带的 profileArn：账号自带的优先（刷新响应 / profile 列表里取得的），
+// 否则用账号类型的固定值；API Key 账号不带。
+func effectiveProfileArn(cred Cred) string {
+	if cred.IsAPIKey() {
+		return ""
+	}
+	if p := strings.TrimSpace(cred.ProfileArn); p != "" {
+		return p
+	}
+	return DefaultProfileArn(cred)
+}
+
 // ParseProfileArn 校验 profileArn（arn:aws:codewhisperer:<region>:<12位账号>:profile/<id>），返回区域。
 func ParseProfileArn(arn string) (canonical, region string, ok bool) {
 	canonical = strings.TrimSpace(arn)
@@ -246,7 +281,7 @@ func (c *Client) UsageLimits(ctx context.Context, cred Cred) (Usage, *Error) {
 	u := regionalize(restBase+"/getUsageLimits?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST&isEmailRequired=true",
 		dataRegion(cred, ""))
 	if !cred.IsAPIKey() {
-		u = withProfileQuery(u, cred.ProfileArn)
+		u = withProfileQuery(u, effectiveProfileArn(cred))
 	}
 	raw, err := c.restDo(ctx, cred, http.MethodGet, u, nil)
 	if err != nil {
@@ -360,7 +395,8 @@ func parsePlan(raw string) string {
 func (c *Client) ListModels(ctx context.Context, cred Cred) ([]Model, *Error) {
 	u := regionalize(restBase+"/ListAvailableModels?origin=AI_EDITOR&maxResults=50", dataRegion(cred, ""))
 	if !cred.IsAPIKey() {
-		u = withProfileQuery(u, cred.ProfileArn)
+		// 1.3.x 版本号下必须带 profileArn（缺了返回 400），见 DefaultProfileArn。
+		u = withProfileQuery(u, effectiveProfileArn(cred))
 	}
 	raw, err := c.restDo(ctx, cred, http.MethodGet, u, nil)
 	if err != nil {
@@ -414,15 +450,16 @@ type Profile struct {
 	Region string
 }
 
-// ResolveProfileArn 为缺 profileArn 的账号找一个可用 profile（按候选区域依次查）。
-// Builder ID 账号的 ListAvailableProfiles 不受支持（403），记下来 24 小时内不再查，
-// 返回 ("", nil)——这类账号不带 profileArn 也能正常推理。
+// ResolveProfileArn 为缺 profileArn 的账号找一个可用 profile：Builder ID / 社交登录直接用固定值
+// （不打网络），企业账号按候选区域依次查 ListAvailableProfiles。
+// 其它 Builder ID 形态的账号查 ListAvailableProfiles 会得到 403（不受支持），记下来 24 小时内不再查，
+// 返回 ("", nil)。
 func (c *Client) ResolveProfileArn(ctx context.Context, cred Cred) (string, *Error) {
+	if p := effectiveProfileArn(cred); p != "" {
+		return p, nil
+	}
 	if cred.IsAPIKey() {
 		return "", nil
-	}
-	if p := strings.TrimSpace(cred.ProfileArn); p != "" {
-		return p, nil
 	}
 	if until, ok := c.profileSuppress.Load(cred.UID); ok && time.Now().Before(until.(time.Time)) {
 		return "", nil
@@ -504,7 +541,8 @@ func (c *Client) listProfiles(ctx context.Context, cred Cred, region string) ([]
 	seen := map[string]bool{}
 	next := ""
 	for page := 0; page < 20; page++ {
-		body := map[string]any{"maxResults": 50}
+		// 请求体里只有 nextToken：带 maxResults 会被上游以 REQUEST_BODY_INVALID 拒绝（真机验证）。
+		body := map[string]any{}
 		if next != "" {
 			body["nextToken"] = next
 		}
