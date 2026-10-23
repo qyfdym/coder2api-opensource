@@ -93,7 +93,7 @@ func (c *Client) hintNoClaude(cred Cred, list []Model) {
 		egress = "显式直连"
 	}
 	c.logf("%s: 模型目录共 %d 个，里面没有 Claude。Kiro 按出口 IP 的地区放出模型，国内 IP 拿不到 Claude；当前出口：%s。"+
-		"可能是代理没生效或节点不在海外（检查 mihomo 日志里 using KIRO[...] 用的是哪个节点），也可能是账号套餐本身不含 Claude",
+		"可能是还没配海外代理，或代理的出口不在海外（面板「Kiro 代理池」页添加代理并测试，看出口国家），也可能是账号套餐本身不含 Claude",
 		cred.label(), len(list), egress)
 }
 
