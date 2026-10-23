@@ -16,6 +16,8 @@ data/
 
 # Config with secrets (use config.example.json)
 config.json
+# 代理内核的运行目录（里面是机场订阅地址 = 密钥；模板在 deploy/mihomo/）
+/mihomo/
 
 # Build artifacts
 *.tmp

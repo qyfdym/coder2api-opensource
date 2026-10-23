@@ -167,7 +167,7 @@ Kiro 协议由 Go 原生实现（`internal/kiro`，移植自 [Quorinex/Kiro-Go](
 
 一个账号的推理、刷新 token、额度、模型目录共用同一个出口。换出口后该账号缓存的模型目录与「模型不可用」冷却会立即作废，下次按新出口重拉。WorkBuddy 和 Qoder 仍只读环境变量，不受影响。
 
-**机场订阅**：网关只直接支持 `http` / `https` / `socks5` 代理地址，订阅里的 vmess / vless / trojan / ss / hysteria 等节点不能直接填。做法是在网关旁边跑一个本地代理内核（mihomo / Clash Meta、sing-box、xray 都行）加载订阅，让它在本机开一个 `http` / `socks5` 端口，再把这个端口填进 `kiro.proxy_url` 或 `kiro.proxy_pool`（本机已经在用 Clash 类客户端的话，它的混合端口就是现成的）。注意让内核**固定使用一个美国节点**（策略组选 `select`，不要 `url-test` / `load-balance` 自动切换），否则同一个账号的出口 IP 会来回变；想让不同账号走不同节点，就让内核给每个节点开一个独立端口，放进 `proxy_pool` 或在账号上单独指定。
+**机场订阅**：网关只直接支持 `http` / `https` / `socks5` 代理地址，订阅里的 vmess / vless / trojan / ss / hysteria 等节点不能直接填。做法是在网关旁边跑一个本地代理内核（mihomo / Clash Meta、sing-box、xray 都行）加载订阅，让它在本机开一个 `http` / `socks5` 端口，再把这个端口填进 `kiro.proxy_url` 或 `kiro.proxy_pool`（本机已经在用 Clash 类客户端的话，它的混合端口就是现成的）。**Docker Compose 部署**可以直接用仓库里现成的 mihomo 服务（默认不启动）：`mkdir -p mihomo && cp deploy/mihomo/config.example.yaml mihomo/config.yaml`，把 `mihomo/config.yaml` 里的订阅地址换成你的，然后 `docker compose --profile proxy up -d`，`config.json` 里写 `"proxy_url": "http://mihomo:7890"`。mihomo 不发布端口，只有同一 compose 网络里的网关连得上；节点组用 `fallback`（一直用排第一的美国节点，它不通了才换），同一个账号的出口不会频繁变。**不要**给网关容器设 `HTTPS_PROXY` 环境变量——那会让 WorkBuddy 和 Qoder 也走代理。反向代理（Nginx 等）只管入站，和出站代理无关。注意让内核**固定使用一个美国节点**（策略组选 `select`，不要 `url-test` / `load-balance` 自动切换），否则同一个账号的出口 IP 会来回变；想让不同账号走不同节点，就让内核给每个节点开一个独立端口，放进 `proxy_pool` 或在账号上单独指定。
 
 **思考强度**：Kiro 默认不思考，请求带以下任一写法即开启（显式关闭优先）：
 
