@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -272,6 +273,12 @@ func extractBinary(data []byte, dest string) error {
 		_ = os.Remove(dest)
 		return fmt.Errorf("解压后超过 %d MB，不像是 mihomo", maxBinary>>20)
 	}
+	// OpenFile 的权限参数只在新建文件时生效：dest 由 os.CreateTemp 预先建好（0600），必须显式加上执行位，
+	// 否则接下来运行 -v 会报 permission denied（Windows 没有执行位，所以本地测不出来）。
+	if err := os.Chmod(dest, 0o755); err != nil {
+		_ = os.Remove(dest)
+		return fmt.Errorf("设置执行权限失败：%v", err)
+	}
 	return nil
 }
 
@@ -304,7 +311,14 @@ func binaryVersion(ctx context.Context, bin string) (string, error) {
 		return string(m[1]), nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("运行失败：%v（%s）", err, truncateStr(firstLine(out), 120))
+		msg := "运行失败：" + err.Error()
+		if line := truncateStr(firstLine(out), 120); line != "" {
+			msg += "（" + line + "）"
+		}
+		if errors.Is(err, fs.ErrPermission) {
+			msg += "。文件没有执行权限，或者所在分区挂载了 noexec"
+		}
+		return "", errors.New(msg)
 	}
 	return "", fmt.Errorf("不是 mihomo（-v 输出：%s）", truncateStr(firstLine(out), 120))
 }

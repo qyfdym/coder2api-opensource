@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -200,5 +201,29 @@ func TestExtractBinary(t *testing.T) {
 	}
 	if err := extractBinary([]byte("not a binary at all"), filepath.Join(dir, "x")); err == nil {
 		t.Errorf("garbage must be refused")
+	}
+}
+
+// 线上故障：安装时临时文件由 os.CreateTemp 预先建好（0600），OpenFile 的 0755 只在新建时生效，
+// 解压出来的内核没有执行位，运行 -v 报 permission denied。Windows 没有执行位，只在类 Unix 上检查。
+func TestExtractBinaryIntoExistingFileIsExecutable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no exec bit on Windows")
+	}
+	f, err := os.CreateTemp(t.TempDir(), "mihomo-*.tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	payload := append([]byte("\x7fELF"), bytes.Repeat([]byte{1}, 64)...)
+	if err := extractBinary(payload, f.Name()); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm()&0o100 == 0 {
+		t.Errorf("extracted core is not executable: %v", fi.Mode().Perm())
 	}
 }

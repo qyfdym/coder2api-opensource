@@ -4137,7 +4137,12 @@ function kcRender(d) {
   const inst = st.install || {};
   let ir = '';
   if (inst.running) ir = inst.stage + (inst.total ? '：' + kcBytes(inst.done) + ' / ' + kcBytes(inst.total) : (inst.done ? '：' + kcBytes(inst.done) : '…'));
-  else if (inst.error) ir = '<span style="color:var(--bad)">下载失败：' + esc(inst.error) + '。可以填一个 GitHub 镜像前缀再试，或在本机下载后上传。</span>';
+  else if (inst.error) {
+    // 只有「下载 / 查版本」这一步失败才是网络问题，提示换镜像；校验、安装失败换镜像没用。
+    const netFail = /^(查询最新版本失败|下载 \S+ 失败)/.test(inst.error);
+    ir = '<span style="color:var(--bad)">' + (netFail ? '下载失败：' : '安装失败：') + esc(inst.error) +
+      (netFail ? '。可以填一个 GitHub 镜像前缀再试，或在本机下载后上传。' : '') + '</span>';
+  }
   else if (inst.version && inst.at && Date.now() / 1000 - inst.at < 3600) {
     ir = '已安装 ' + esc(inst.version) + (inst.sha256 ? ' · SHA-256 <code>' + esc(inst.sha256) + '</code> ' +
       (inst.verified ? '<span class="tag ok">已对照 GitHub 校验</span>'
