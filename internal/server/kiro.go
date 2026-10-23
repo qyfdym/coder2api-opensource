@@ -162,21 +162,24 @@ func (h *Handler) kiroModelEntries(hidden map[string]struct{}) []map[string]any 
 	if total, _, _, _, _ := h.cfg.Pool.CountsDetailedForRealm(auth.RealmKiro); total == 0 {
 		return nil
 	}
-	var cred *kiro.Cred
-	if uids := h.cfg.Pool.AvailableUIDsForRealm(auth.RealmKiro); len(uids) > 0 {
-		if a := h.cfg.Pool.AuthByUID(uids[0]); a != nil && a.IsKiro() && !kiroacct.NeedsRefresh(a, time.Minute) {
-			c := kiroacct.Cred(a)
-			cred = &c
+	// 目录按账号授权返回：每个可用账号的目录并成全池目录。目录缺失 / 过期的账号才会拉
+	// （TTL 内零开销）；不为刷新 token 拖慢 /v1/models，将过期的账号这次先跳过。
+	var accts []*auth.Auth
+	for _, uid := range h.cfg.Pool.AvailableUIDsForRealm(auth.RealmKiro) {
+		if a := h.cfg.Pool.AuthByUID(uid); a != nil && a.IsKiro() {
+			accts = append(accts, a)
 		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-	models := h.cfg.Kiro.Client.Models(ctx, cred)
+	_ = h.cfg.Kiro.RefreshCatalogs(ctx, accts, kiroacct.CatalogOpts{})
 	cancel()
+	models := h.cfg.Kiro.Client.CachedModels()
 	out := make([]map[string]any, 0, len(models))
 	for _, m := range models {
 		if _, hide := hidden[auth.RealmKiro+":"+m.ID]; hide {
 			continue
 		}
+		efforts, defEffort, _ := m.EffortInfo()
 		entry := map[string]any{
 			"id":                          auth.RealmKiro + ":" + m.ID,
 			"object":                      "model",
@@ -184,7 +187,8 @@ func (h *Handler) kiroModelEntries(hidden map[string]struct{}) []map[string]any 
 			"owned_by":                    "kiro",
 			"supports_tool_call":          true,
 			"supports_reasoning":          true,
-			"reasoning_supported_efforts": kiro.SupportedEfforts,
+			"reasoning_supported_efforts": efforts,
+			"reasoning_default_effort":    defEffort,
 		}
 		if m.Name != "" {
 			entry["name"] = m.Name

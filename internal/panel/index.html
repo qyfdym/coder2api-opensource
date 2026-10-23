@@ -1389,7 +1389,7 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
                 <input name="credit_floor_kiro" type="number" min="0" placeholder="0">
                 <span class="hint">单位是 Kiro Credits，与其它平台分开计；0 关闭</span></label>
             </div>
-            <div class="hint">Kiro 账号与其它平台账号同池调度、共用 API Key。调用名：<code>kiro:模型名</code>，例如 <code>kiro:claude-sonnet-4.5</code>；思考默认关闭，请求带 <code>reasoning_effort</code>（low / medium / high / xhigh / max）、<code>thinking.budget_tokens</code> 或模型名加 <code>-thinking</code> 后缀即开启。关闭后 Kiro 账号仍在列表里但不参与选号；启用开关、入口、代理、版本改动需重启，调度与保底即时生效。</div>
+            <div class="hint">Kiro 账号与其它平台账号同池调度、共用 API Key。调用名：<code>kiro:模型名</code>，例如 <code>kiro:claude-sonnet-4.5</code>；思考默认关闭，请求带 <code>reasoning_effort</code>（low / medium / high / xhigh / max）、<code>thinking.budget_tokens</code> 或模型名加 <code>-thinking</code> 后缀即开启；目录里自带思考档位的模型（如 gpt-5.6、kimi-k3）按目录声明的档位发送，没指定时用模型默认档，档位以「模型与档位」页为准。关闭后 Kiro 账号仍在列表里但不参与选号；启用开关、入口、代理、版本改动需重启，调度与保底即时生效。</div>
           </div>
         </div>
 

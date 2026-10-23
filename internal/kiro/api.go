@@ -409,7 +409,9 @@ func (c *Client) ListModels(ctx context.Context, cred Cred) ([]Model, *Error) {
 			Description    string   `json:"description"`
 			InputTypes     []string `json:"supportedInputTypes"`
 			RateMultiplier float64  `json:"rateMultiplier"`
-			TokenLimits    *struct {
+			// 声明该模型原生思考档位的 JSON Schema（没有 = null）。
+			EffortSchema json.RawMessage `json:"additionalModelRequestFieldsSchema"`
+			TokenLimits  *struct {
 				MaxInputTokens  int `json:"maxInputTokens"`
 				MaxOutputTokens int `json:"maxOutputTokens"`
 			} `json:"tokenLimits"`
@@ -424,6 +426,7 @@ func (c *Client) ListModels(ctx context.Context, cred Cred) ([]Model, *Error) {
 			continue
 		}
 		mm := Model{ID: m.ModelID, Name: m.ModelName, Description: m.Description, RateMultiplier: m.RateMultiplier}
+		mm.Efforts, mm.DefaultEffort = nativeEffortSchema(m.EffortSchema)
 		if m.TokenLimits != nil {
 			mm.MaxInput, mm.MaxOutput = m.TokenLimits.MaxInputTokens, m.TokenLimits.MaxOutputTokens
 		}

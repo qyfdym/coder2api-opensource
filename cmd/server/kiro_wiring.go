@@ -71,25 +71,26 @@ func schedulerKiroOps(svc *kiroacct.Service) scheduler.KiroOps {
 	return kiroOps{svc: svc}
 }
 
-// warmKiro 启动预热：用一个可用账号拉一次动态模型目录（/v1/models、积分倍率、跨平台回退的
-// 等价模型都读这份缓存），并逐号刷新一次余额（面板首屏与积分保底立即可用）。
+// warmKiro 启动预热：为可用账号（最多 8 个）各拉一次动态模型目录并成全池目录（/v1/models、积分倍率、
+// 跨平台回退的等价模型都读这份缓存），并逐号刷新一次余额（面板首屏与积分保底立即可用）。
 // 失败只记 WARN：目录有内置列表兜底，余额由周期刷新补上。
 func warmKiro(ctx context.Context, svc *kiroacct.Service, p *pool.Pool) {
 	if svc == nil {
 		return
 	}
-	if uids := p.AvailableUIDsForRealm(auth.RealmKiro); len(uids) > 0 {
-		if a := p.AuthByUID(uids[0]); a != nil && a.IsKiro() {
-			cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			if kerr := svc.EnsureFresh(cctx, a, 5*time.Minute); kerr != nil {
-				log.Printf("WARN: [kiro] warm: refresh %s: %v", logfmt.Label(a.UID, a.Nickname), kerr)
-			} else if models, kerr := svc.Client.RefreshModels(cctx, kiroacct.Cred(a)); kerr != nil {
-				log.Printf("WARN: [kiro] warm: models: %v", kerr)
-			} else {
-				log.Printf("[kiro] warm: %d models", len(models))
-			}
-			cancel()
+	var accts []*auth.Auth
+	for _, uid := range p.AvailableUIDsForRealm(auth.RealmKiro) {
+		if a := p.AuthByUID(uid); a != nil && a.IsKiro() {
+			accts = append(accts, a)
 		}
+	}
+	if len(accts) > 0 {
+		cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		for _, e := range svc.RefreshCatalogs(cctx, accts, kiroacct.CatalogOpts{Max: 8, EnsureFresh: true}) {
+			log.Printf("WARN: [kiro] warm: models: %s", e)
+		}
+		cancel()
+		log.Printf("[kiro] warm: %d models", len(svc.Client.CachedModels()))
 	}
 	for _, st := range p.List() {
 		if ctx.Err() != nil {

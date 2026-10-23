@@ -38,6 +38,8 @@ type kiroPayload struct {
 	} `json:"conversationState"`
 	ProfileArn      string           `json:"profileArn,omitempty"`
 	InferenceConfig *inferenceConfig `json:"inferenceConfig,omitempty"`
+	// AdditionalModelRequestFields 模型的原生扩展参数（目前只有 reasoning.effort，见 effort.go）。
+	AdditionalModelRequestFields map[string]any `json:"additionalModelRequestFields,omitempty"`
 
 	// toolNameMap 出站（缩短后）工具名 → 客户端原名；不序列化。
 	toolNameMap map[string]string

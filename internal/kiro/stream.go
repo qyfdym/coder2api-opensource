@@ -30,11 +30,15 @@ func (c *Client) ChatStream(ctx context.Context, cred Cred, body []byte) (io.Rea
 	if len(req.Messages) == 0 {
 		return nil, &Error{Kind: KindBadRequest, Msg: "messages must not be empty"}
 	}
-	modelID, budget, _ := c.resolveThinking(req.Model, effortFromBody(body))
-	payload := buildPayload(&req, modelID, budget)
+	ep := c.planEffort(req.Model, effortFromBody(body))
+	modelID := ep.kiroModel
+	payload := buildPayload(&req, modelID, ep.budget)
+	if ep.native && ep.nativeEffort != "" {
+		payload.AdditionalModelRequestFields = map[string]any{"reasoning": map[string]any{"effort": ep.nativeEffort}}
+	}
 	plan := chatPlan{
 		model:    req.Model,
-		thinking: budget > 0,
+		thinking: ep.thinking(),
 		estIn:    estimateRequestTokens(&req),
 		window:   contextWindow(modelID),
 	}

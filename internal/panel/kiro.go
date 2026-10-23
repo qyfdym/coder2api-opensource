@@ -368,22 +368,21 @@ func (p *Panel) kiroModelEntries(ctx context.Context, fetchErrs *[]string) []map
 	if p.cfg.Kiro == nil || p.cfg.Kiro.Client == nil {
 		return nil
 	}
-	uids := p.cfg.Pool.AvailableUIDsForRealm(auth.RealmKiro)
-	var models []kiro.Model
-	if len(uids) > 0 {
-		if a := p.cfg.Pool.AuthByUID(uids[0]); a != nil && a.IsKiro() {
-			cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-			if kerr := p.cfg.Kiro.EnsureFresh(cctx, a, 5*time.Minute); kerr != nil {
-				*fetchErrs = append(*fetchErrs, "kiro: "+kerr.Error())
-				models = p.cfg.Kiro.Client.CachedModels()
-			} else if list, kerr := p.cfg.Kiro.Client.RefreshModels(cctx, kiroacct.Cred(a)); kerr != nil {
-				*fetchErrs = append(*fetchErrs, "kiro: "+kerr.Error())
-				models = p.cfg.Kiro.Client.CachedModels()
-			} else {
-				models = list
-			}
-			cancel()
+	// 目录按账号授权返回：模型页展示的是可用账号目录的并集；打开页面即强制重拉（最多 4 个账号）。
+	var accts []*auth.Auth
+	for _, uid := range p.cfg.Pool.AvailableUIDsForRealm(auth.RealmKiro) {
+		if a := p.cfg.Pool.AuthByUID(uid); a != nil && a.IsKiro() {
+			accts = append(accts, a)
 		}
+	}
+	var models []kiro.Model
+	if len(accts) > 0 {
+		cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		for _, e := range p.cfg.Kiro.RefreshCatalogs(cctx, accts, kiroacct.CatalogOpts{Force: true, EnsureFresh: true}) {
+			*fetchErrs = append(*fetchErrs, "kiro: "+e)
+		}
+		cancel()
+		models = p.cfg.Kiro.Client.CachedModels()
 	} else if total, _, _, _, _ := p.cfg.Pool.CountsDetailedForRealm(auth.RealmKiro); total > 0 {
 		models = p.cfg.Kiro.Client.CachedModels()
 	}
@@ -393,13 +392,15 @@ func (p *Panel) kiroModelEntries(ctx context.Context, fetchErrs *[]string) []map
 		if m.RateMultiplier > 0 {
 			credits = "x" + strconv.FormatFloat(m.RateMultiplier, 'f', -1, 64)
 		}
+		// 没有原生档位的模型：思考默认关闭，请求带 reasoning_effort / thinking 才注入思考提示；
+		// 有原生档位的模型：档位与默认档取目录里的声明（见 kiro.Model.EffortInfo）。
+		efforts, defEffort, canDisable := m.EffortInfo()
 		e := map[string]any{
-			"id":   auth.RealmKiro + ":" + m.ID,
-			"name": m.Name,
-			// Kiro 思考默认关闭：请求带 reasoning_effort / thinking 才注入思考提示。
-			"default_effort":       "off",
-			"supported_efforts":    kiro.SupportedEfforts,
-			"can_disable_thinking": true,
+			"id":                   auth.RealmKiro + ":" + m.ID,
+			"name":                 m.Name,
+			"default_effort":       defEffort,
+			"supported_efforts":    efforts,
+			"can_disable_thinking": canDisable,
 			"supports_reasoning":   true,
 			"supports_images":      m.Vision,
 			"supports_tool_call":   true,

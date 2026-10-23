@@ -155,7 +155,7 @@ Kiro 协议由 Go 原生实现（`internal/kiro`，移植自 [Quorinex/Kiro-Go](
 
 导入时 OAuth 凭证先刷新一次、再查一次额度确认可用；同一个账号重复导入覆盖同一个文件（`auths/kiro-<uid>.json`）。账号池表格里用紫色「Kiro」徽标区分，副标题是身份来源与订阅档位（Builder ID / Identity Center / Google / GitHub / Microsoft / API Key）。
 
-**模型名**：`kiro:模型名`，例如 `kiro:claude-sonnet-4.5`（`claude-sonnet-4-5` 写法同样接受）；`GET /v1/models` 在池里有 Kiro 账号时列出 `kiro:` 条目（动态目录，拉不到时用内置目录）。目录由上游按账号的套餐返回，不同账号能用的模型不同：真机验证的学生版 Builder ID 账号当前可用 `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna`、`deepseek-3.2`、`glm-5`、`kimi-k3` 等，没有 Claude；请求不在账号目录里的模型会得到 `INVALID_MODEL_ID`，该模型在这个号上随即冷却。
+**模型名**：`kiro:模型名`，例如 `kiro:claude-sonnet-4.5`（`claude-sonnet-4-5` 写法同样接受）；`GET /v1/models` 在池里有 Kiro 账号时列出 `kiro:` 条目（动态目录，拉不到时用内置目录）。目录由上游按账号的套餐返回，不同账号能用的模型不同：真机验证的学生版 Builder ID 账号当前可用 `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna`、`deepseek-3.2`、`glm-5`、`kimi-k3` 等，没有 Claude；请求不在账号目录里的模型会得到 `INVALID_MODEL_ID`，该模型在这个号上随即冷却，网关换号重试。池里有多个 Kiro 账号时，`/v1/models` 和「模型与档位」页显示各账号目录的**并集**（每个账号的目录单独缓存 30 分钟，一次最多补拉 4 个缺失 / 过期的账号），所以学生号和 Pro 号混用时，Claude 等只有部分账号能用的模型也会列出来。
 
 **profileArn 与客户端版本号**：出站 User-Agent 里的 Kiro 版本号默认是当前 Kiro IDE 的 `1.3.11`。这个版本号下，推理请求和模型目录都必须带 `profileArn`（缺了推理返回 `profileArn is required for this request`，目录返回 400）。Builder ID 与社交登录账号使用 Kiro IDE 内置的固定 profile（首次使用时自动补进账号文件），企业账号（IAM Identity Center / Microsoft）通过 `ListAvailableProfiles` 获取。版本号还决定上游返回哪份模型目录：旧版本号（如 `0.11.107`）拿到的是一份没按账号授权过滤的目录，里面有账号用不了的模型（例如学生版没有的 Claude 和 `auto`），推理时会得到 `INVALID_MODEL_ID`。社交登录的固定 profile 取自 Kiro IDE 的代码，**未经真机验证**。
 
@@ -170,7 +170,17 @@ Kiro 协议由 Go 原生实现（`internal/kiro`，移植自 [Quorinex/Kiro-Go](
 
 无法识别的档位按 `high` 处理。思考内容走 `delta.reasoning_content`；请求记录的「思考强度」列写「请求档位 → 实际档位」。
 
-⚠️ 上述写法是给 Claude 系模型的提示词开关。`gpt-5.6-*`、`kimi-k3` 这类新目录模型的思考档位由上游的原生字段 `additionalModelRequestFields.reasoning.effort` 控制（目录里的 `additionalModelRequestFieldsSchema` 列出可选档位），提示词写法对它们不起作用。该字段已用真机确认可用（`max` 会返回 `reasoningContentEvent`，不在档位表里的值返回 400），网关尚未接入。
+**原生档位模型**：模型目录里带 `additionalModelRequestFieldsSchema` 的模型（真机：`gpt-5.6-*`、`kimi-k3`）不走上面的提示词，而是由请求体的 `additionalModelRequestFields.reasoning.effort` 控制，档位和默认档以目录为准（`/v1/models` 的 `reasoning_supported_efforts` / `reasoning_default_effort` 如实反映）。上面表格里的各种写法照常识别，最后落到模型支持的档位上：
+
+| 请求 | 实际发给上游 |
+|---|---|
+| 没指定思考相关字段 | 不带字段，按模型默认档运行（`gpt-5.6-*` 默认 `high`，`kimi-k3` 默认 `max`） |
+| 档位在模型支持的列表里 | 原样发送 |
+| 档位不在列表里（如 `kimi-k3` 没有 `medium`） | 取不高于请求的最高档（`medium` → `low`），都比请求高就取最低档 |
+| 关闭（`none` / `off` / `thinking.type: disabled`） | 模型有 `none` 档就发 `none`；没有（`kimi-k3`）就落到最低档 `low`，该模型无法真正关闭 |
+| 认不出的档位 | 按 `high` 处理，再落到支持的档位 |
+
+请求记录的「思考强度」列写实际发出的档位，没指定时为空。思考内容走 `delta.reasoning_content`，只在请求了思考且档位不是 `none` 时下发；`gpt-5.6-*` 的思考文本上游返回的是占位符 `...`（真机观察），`kimi-k3` 返回真实文本。没有 schema 的模型（`deepseek-3.2`、`glm-5`、`qwen3-coder-next` 等）仍走提示词开关。
 
 **调度与保号**：与其它平台共用选号、冷却、熔断、会话粘性。错误处置按 Kiro 语义：429 软冷却退避；账号封禁（`TEMPORARILY_SUSPENDED`）或登录失效停用；401/403 标记待刷新并短冷却（API Key 被拒直接停用）；额度耗尽硬冷却到下次重置；模型对该号不可用只锁该模型；容量不足（`INSUFFICIENT_MODEL_CAPACITY`）503 不换号。非流式请求遇到上游截断会在同一个号上重试两次。Kiro 没有签到：「全部签到」与定时签到对 Kiro 账号只刷新额度；token 保活、额度刷新跟随 `schedule`。跨平台回退顺序：WorkBuddy → Qoder → Kiro、Qoder → WorkBuddy → Kiro、Kiro → WorkBuddy → Qoder。
 

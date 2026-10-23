@@ -531,6 +531,60 @@ func (s *Service) createAccount(ctx context.Context, it kiro.ImportItem, source 
 	return a, nil
 }
 
+// CatalogOpts RefreshCatalogs 的选项。
+type CatalogOpts struct {
+	// Max 单次最多拉几个账号的目录（0 = 4）；目录缺失的账号优先，其余的下次再补。
+	Max int
+	// Force 忽略缓存有效期，强制重拉。
+	Force bool
+	// EnsureFresh 账号 token 将过期时先刷新；false 时直接跳过这类账号（/v1/models 路径不为刷新 token 拖慢响应）。
+	EnsureFresh bool
+}
+
+// RefreshCatalogs 为目录缺失 / 过期的账号各拉一次模型目录，并入全池目录（见 kiro 包 modelCache）。
+// 目录按账号授权返回，只拉一个账号会漏掉其它账号独有的模型。返回各账号的失败原因（成功的不返回）。
+func (s *Service) RefreshCatalogs(ctx context.Context, accts []*auth.Auth, opt CatalogOpts) []string {
+	if s == nil || s.Client == nil {
+		return nil
+	}
+	limit := opt.Max
+	if limit <= 0 {
+		limit = 4
+	}
+	var missing, stale []*auth.Auth
+	for _, a := range accts {
+		if a == nil || !a.IsKiro() {
+			continue
+		}
+		switch {
+		case !s.Client.CatalogFresh(a.UID) && !s.Client.HasCatalog(a.UID):
+			missing = append(missing, a)
+		case opt.Force || !s.Client.CatalogFresh(a.UID):
+			stale = append(stale, a)
+		}
+	}
+	var errs []string
+	for _, a := range append(missing, stale...) {
+		if limit == 0 || ctx.Err() != nil {
+			break
+		}
+		if NeedsRefresh(a, time.Minute) {
+			if !opt.EnsureFresh {
+				continue
+			}
+			if kerr := s.EnsureFresh(ctx, a, 5*time.Minute); kerr != nil {
+				errs = append(errs, logfmt.Label(a.UID, a.Nickname)+": "+kerr.Error())
+				continue
+			}
+		}
+		limit--
+		if _, kerr := s.Client.RefreshModels(ctx, Cred(a)); kerr != nil {
+			errs = append(errs, logfmt.Label(a.UID, a.Nickname)+": "+kerr.Error())
+		}
+	}
+	return errs
+}
+
 // ModelRate 模型 → 积分倍率字符串（"1.3"；未知为空）。供账号池积分保底判收费。
 func (s *Service) ModelRate(model string) string {
 	if s == nil || s.Client == nil {
