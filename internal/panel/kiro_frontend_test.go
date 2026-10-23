@@ -135,7 +135,12 @@ const cut = (a, b) => { const i = src.indexOf(a), j = src.indexOf(b); if (i < 0 
 const ctx = { String, Date, Number, KIRO_PROXY_KIND: { account: '账号代理', pool: '代理池', default: '默认代理', direct: '直连' } };
 vm.createContext(ctx);
 vm.runInContext(cut('function esc(', 'function ago(') + cut('function kpMoved(', 'function kpRender(') +
-  '\nthis.row=kpRowHTML; this.acc=kpAccHTML; this.test=kpTestHTML;', ctx);
+  '\nthis.row=kpRowHTML; this.acc=kpAccHTML; this.test=kpTestHTML; this.direct=kpDirectHTML;', ctx);
+assert.equal(ctx.direct(null), '');
+const dfail = ctx.direct({ ok: false, error: '<b>i/o timeout</b>', at: 1 });
+assert(dfail.includes('连不上 Kiro') && dfail.includes('需要在下面添加') && !dfail.includes('<b>i/o'), dfail);
+assert(ctx.direct({ ok: true, country: 'CN', latency_ms: 90, at: 1 }).includes('出口在国内'));
+assert(!ctx.direct({ ok: true, country: 'US', latency_ms: 90, at: 1 }).includes('出口在国内'));
 const base = { id: 'a"b', proxy: 'http://h:1', note: '', source: 'panel', enabled: true, active: true, down: false, accounts: 0 };
 const evil = ctx.row(Object.assign({}, base, { proxy: '<x>', note: '<img src=x onerror=1>', test: { ok: false, error: '<script>1</script>', at: 1 } }));
 assert(!evil.includes('<img') && !evil.includes('<x>') && !evil.includes('<script>'), evil);

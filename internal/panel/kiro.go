@@ -280,23 +280,30 @@ const kiroSSOTokenMax = 20
 // kiroFinishImport 导入结果统一收尾：成功的入池并刷新余额，失败的汇总原因。
 func (p *Panel) kiroFinishImport(ctx context.Context, w http.ResponseWriter, results []kiroacct.ImportResult, skipped []string, kind string) {
 	var accounts []map[string]any
-	var failed []string
+	var failed, warnings []string
 	for _, res := range results {
+		label := res.Nickname
+		if label == "" {
+			label = "账号"
+		}
 		if !res.OK {
-			label := res.Nickname
-			if label == "" {
-				label = "账号"
-			}
 			failed = append(failed, label+"："+res.Error)
 			continue
 		}
-		p.kiroAddToPool(ctx, res.Account)
+		if res.Warning != "" {
+			// 没能联网校验：直接入池，不再为它查余额（会再等一轮超时），余额由后台刷新补上。
+			p.cfg.Pool.Add(res.Account)
+			p.cfg.Pool.Revive(res.Account.UID)
+			warnings = append(warnings, label+"："+res.Warning)
+		} else {
+			p.kiroAddToPool(ctx, res.Account)
+		}
 		accounts = append(accounts, kiroAccountBrief(res.Account))
 	}
-	log.Printf("panel: kiro import(%s): %d ok, %d failed, %d skipped", kind, len(accounts), len(failed), len(skipped))
+	log.Printf("panel: kiro import(%s): %d ok (%d unverified), %d failed, %d skipped", kind, len(accounts), len(warnings), len(failed), len(skipped))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": len(accounts) > 0, "imported": len(accounts), "accounts": accounts,
-		"failed": failed, "skipped": skipped,
+		"failed": failed, "skipped": skipped, "warnings": warnings,
 	})
 }
 

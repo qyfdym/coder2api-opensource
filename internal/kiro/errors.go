@@ -182,7 +182,7 @@ func scrubCredentials(s string) string { return urlCredentials.ReplaceAllString(
 // transportError 传输层失败的信封。原因（拨号被拒绝 / 代理隧道失败 / 超时……）保留在 Body 里，
 // Error() 会带上它——只写「连接 Kiro 上游失败」的话，代理没起来、节点不通、DNS 失败看起来一模一样。
 func transportError(err error) *Error {
-	return &Error{Kind: KindTransport, Msg: friendlyMessage(KindTransport), Body: scrubCredentials(truncate(err.Error(), 300))}
+	return &Error{Kind: KindTransport, Msg: friendlyMessage(KindTransport), Body: scrubCredentials(truncate(err.Error(), 500))}
 }
 
 // asError 把任意错误转成 *Error（已经是 *Error 的原样返回）。

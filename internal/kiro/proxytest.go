@@ -43,12 +43,21 @@ type ProxyTestResult struct {
 // TestProxy 经指定代理探测一次：能不能连到 Kiro 入口，出口 IP 在哪个国家。
 // 成功会顺带清除该代理的「最近连不上」标记，让它立刻重新参与选择。
 func (c *Client) TestProxy(ctx context.Context, raw string) ProxyTestResult {
-	res := ProxyTestResult{At: time.Now().Unix()}
 	n, err := NormalizeProxyURL(raw)
 	if err != nil || n == "" || strings.EqualFold(n, ProxyDirect) {
-		res.Error = "代理地址无效"
-		return res
+		return ProxyTestResult{At: time.Now().Unix(), Error: "代理地址无效"}
 	}
+	return c.probe(ctx, n)
+}
+
+// TestDirect 不经任何代理，测试服务器自己的出口：能不能连到 Kiro 入口、出口 IP 在哪个国家。
+// 登录 / 导入账号失败时用它判断是不是服务器本身连不上 AWS。
+func (c *Client) TestDirect(ctx context.Context) ProxyTestResult { return c.probe(ctx, ProxyDirect) }
+
+// probe 经指定出口（规范化后的代理地址，或 ProxyDirect）探测一次。
+func (c *Client) probe(ctx context.Context, key string) ProxyTestResult {
+	res := ProxyTestResult{At: time.Now().Unix()}
+	n := key
 	rt := c.opts.Transport
 	if rt == nil {
 		t := transportFor("", n)
@@ -76,7 +85,9 @@ func (c *Client) TestProxy(ctx context.Context, raw string) ProxyTestResult {
 	}
 	_ = resp.Body.Close()
 	res.OK, res.LatencyMS = true, time.Since(start).Milliseconds()
-	c.health.success(n)
+	if !strings.EqualFold(n, ProxyDirect) {
+		c.health.success(n)
+	}
 
 	gctx, gcancel := context.WithTimeout(ctx, proxyGeoTimeout)
 	defer gcancel()

@@ -15,6 +15,7 @@ package kiro
 // 账号的所有出站请求（推理、刷新、额度、模型目录、profile）共用同一个选择结果。
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -22,10 +23,12 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -147,10 +150,12 @@ func (h *proxyHealth) success(key string) {
 // net/http 把连接代理阶段的所有错误（含 CONNECT 被拒）包成 Op=proxyconnect 的 *net.OpError。
 func isProxyFault(err error) bool {
 	var oe *net.OpError
-	if errors.As(err, &oe) {
-		return oe.Op == "proxyconnect" || oe.Op == "dial"
+	if errors.As(err, &oe) && (oe.Op == "proxyconnect" || oe.Op == "dial") {
+		return true
 	}
-	return false
+	// 连接还没建立就超时：代理收下了 TCP 连接，却一直没把隧道接通（节点挂了 / 出不去）。
+	// 这条文本是 net/http 里固定的 errRequestCanceledConn，没有导出的类型可以判断。
+	return strings.Contains(err.Error(), "while waiting for connection")
 }
 
 // healthRT 记录经某个代理的请求是否成功连上，供代理池顺延使用。
@@ -161,14 +166,54 @@ type healthRT struct {
 }
 
 func (t healthRT) RoundTrip(r *http.Request) (*http.Response, error) {
+	// 记录这次请求有没有拿到连接（拨号 + 代理隧道 + TLS 都完成）。连接都没拿到就超时，是出口的问题；
+	// 拿到连接之后才慢，是上游的问题，不能怪代理。
+	var connected atomic.Bool
+	r = r.WithContext(httptrace.WithClientTrace(r.Context(), &httptrace.ClientTrace{
+		GotConn: func(httptrace.GotConnInfo) { connected.Store(true) },
+	}))
 	resp, err := t.base.RoundTrip(r)
 	switch {
 	case err == nil:
 		t.h.success(t.key)
-	case isProxyFault(err) && r.Context().Err() == nil:
+	// 调用方主动取消（用户关了页面 / 客户端断开）不算代理的错。超时要算：Client.Timeout 到期时
+	// net/http 有时报 request canceled while waiting for connection，有时只有 context deadline exceeded，
+	// 两种写法都是「代理收下了连接却一直没把隧道接通」。
+	case errors.Is(r.Context().Err(), context.Canceled):
+	case isProxyFault(err), !connected.Load() && errors.Is(err, context.DeadlineExceeded):
 		t.h.failure(t.key)
 	}
 	return resp, err
+}
+
+// egressRT 传输失败时在错误文本末尾标明这次请求走的是哪个出口。登录 / 刷新 / 目录查询失败时，
+// 「服务器直连不通」「默认代理不通」「代理池里的某个代理不通」光看 net/http 的报错分不出来。
+type egressRT struct {
+	base http.RoundTripper
+	note string
+}
+
+func (t egressRT) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := t.base.RoundTrip(r)
+	if err != nil {
+		// 放在原因前面：错误文本进信封时会被截断，出口信息不能落在被截掉的尾巴上。
+		err = fmt.Errorf("[出口：%s] %w", t.note, err)
+	}
+	return resp, err
+}
+
+// egressNote 出口 key 的说明文字（不含代理账号密码）。
+func (c *Client) egressNote(key string) string {
+	switch {
+	case strings.EqualFold(key, ProxyDirect):
+		return "不走代理，服务器直连"
+	case key == "":
+		if p := strings.TrimSpace(c.opts.ProxyURL); p != "" {
+			return "默认代理 " + MaskProxyURL(p)
+		}
+		return "没配代理，服务器直连（或跟随环境变量 HTTPS_PROXY）"
+	}
+	return "代理 " + MaskProxyURL(key)
 }
 
 // ---------------------------------------------------------------------------
@@ -294,6 +339,9 @@ func (c *Client) ProxyInfo(cred Cred) ProxyInfo {
 // 按出口缓存的 HTTP 客户端
 // ---------------------------------------------------------------------------
 
+// restTimeout 额度 / 模型 / 刷新 / 登录这类短请求的整体超时（变量只为让测试能缩短它）。
+var restTimeout = 30 * time.Second
+
 // httpSet 一个出口对应的三个客户端。
 type httpSet struct {
 	stream *http.Client // 推理流：无整体超时（靠 ctx + 响应头超时 + 网关空闲看门狗）
@@ -329,10 +377,12 @@ func (c *Client) buildSet(key string) *httpSet {
 		streamRT = healthRT{base: streamRT, key: key, h: c.health}
 		restRT = healthRT{base: restRT, key: key, h: c.health}
 	}
+	note := c.egressNote(key)
+	streamRT, restRT = egressRT{base: streamRT, note: note}, egressRT{base: restRT, note: note}
 	return &httpSet{
 		stream: &http.Client{Transport: streamRT},
-		rest:   &http.Client{Transport: restRT, Timeout: 30 * time.Second},
-		auth:   &http.Client{Transport: restRT, Timeout: 30 * time.Second},
+		rest:   &http.Client{Transport: restRT, Timeout: restTimeout},
+		auth:   &http.Client{Transport: restRT, Timeout: restTimeout},
 	}
 }
 

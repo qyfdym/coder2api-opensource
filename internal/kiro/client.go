@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -131,8 +132,13 @@ func NewClient(opts Options) *Client {
 	return c
 }
 
+// dialTimeout 建立 TCP 连接（直连目标或连代理）的上限。不设的话，被丢包的出口会一直挂到
+// 整个请求超时（登录 / 刷新是 30 秒），而且代理池看不到这是代理的问题，没法顺延。
+const dialTimeout = 10 * time.Second
+
 func buildTransport(proxyURL string) *http.Transport {
 	t := &http.Transport{
+		DialContext:         (&net.Dialer{Timeout: dialTimeout, KeepAlive: 30 * time.Second}).DialContext,
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 20,
 		IdleConnTimeout:     90 * time.Second,

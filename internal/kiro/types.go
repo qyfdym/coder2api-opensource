@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Cred 一个 Kiro 账号的调用凭证快照。
@@ -183,15 +184,18 @@ func (e *Error) Error() string {
 		s += ": " + e.Msg
 	}
 	if e.Kind == KindTransport && e.Body != "" {
-		s += "（原因：" + truncate(e.Body, 200) + "）"
+		s += "（原因：" + truncate(e.Body, 400) + "）"
 	}
 	return s
 }
 
-// truncate 按字节截断（用于日志 / 错误信封）。
+// truncate 按字节截断（用于日志 / 错误信封），不会把一个多字节字符（中文）截成乱码。
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n] + "…"
 }

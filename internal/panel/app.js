@@ -3967,6 +3967,20 @@ function kpTestHTML(t) {
   const info = [t.ip, t.org, t.latency_ms + 'ms', when].filter(Boolean).map(esc).join(' · ');
   return '<span class="tag ok">已连通</span>' + geo + '<div class="sub">' + info + '</div>';
 }
+/* 服务器直连测试的结论：区分「连不上 AWS（登录 / 导入 / 刷新全部失败）」和「能连但在国内（没有 Claude）」。 */
+function kpDirectHTML(t) {
+  if (!t) return '';
+  const when = new Date(t.at * 1000).toLocaleTimeString();
+  if (!t.ok) {
+    return '<div style="color:var(--bad)">服务器直连：<b>连不上 Kiro</b>（' + esc(t.error || '未知原因') + ' · ' + esc(when) +
+      '）。登录、导入、刷新都会失败，需要在下面添加能用的海外代理。</div>';
+  }
+  const where = [t.ip, t.country, t.org].filter(Boolean).map(esc).join(' · ');
+  const note = t.country === 'CN'
+    ? '能连上，但出口在国内，Kiro 不会返回 Claude，需要添加海外代理。'
+    : '能直接连上。';
+  return '<div>服务器直连：已连通，' + esc(t.latency_ms) + 'ms' + (where ? ' · ' + where : '') + ' · ' + esc(when) + '。' + note + '</div>';
+}
 function kpRowHTML(r) {
   const cfg = r.source === 'config';
   let st = '<span class="tag ok">已启用</span>';
@@ -3996,6 +4010,7 @@ function kpAccHTML(a) {
 }
 function kpRender(d) {
   kpData = d;
+  $('kpDirect').innerHTML = kpDirectHTML(d.direct_test);
   const rows = d.proxies || [];
   const live = rows.filter(r => r.active).length;
   $('kpNote').textContent = rows.length
@@ -4040,6 +4055,19 @@ async function kpTestIds(ids) {
   }
 }
 $('kpReload').onclick = loadKiroProxies;
+$('kpTestDirect').onclick = async () => {
+  const b = $('kpTestDirect');
+  b.disabled = true;
+  $('kpDirect').textContent = '正在测试服务器直连…（最多 15 秒）';
+  try {
+    await api('kiro/proxies/direct/test', { method: 'POST' });
+    await loadKiroProxies();
+  } catch (e) {
+    $('kpDirect').textContent = '测试失败：' + e.message;
+  } finally {
+    b.disabled = false;
+  }
+};
 $('kpTestAll').onclick = () => kpTestIds(((kpData && kpData.proxies) || []).map(r => r.id));
 $('kpAdd').onclick = async () => {
   const text = $('kpText').value.trim();
@@ -4226,7 +4254,8 @@ function krShowImportResult(d) {
   } else {
     err.hidden = false; err.textContent = '没有导入成功的账号';
   }
-  const lines = failed.map(x => '失败 · ' + x).concat(skipped.map(x => '跳过 · ' + x));
+  const warnings = d.warnings || [];
+  const lines = failed.map(x => '失败 · ' + x).concat(warnings.map(x => '已保存，未校验 · ' + x), skipped.map(x => '跳过 · ' + x));
   if (lines.length) {
     res.hidden = false;
     res.innerHTML = lines.map(l => '<div>' + esc(l) + '</div>').join('');

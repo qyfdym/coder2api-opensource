@@ -260,10 +260,13 @@ type ImportResult struct {
 	UID      string `json:"uid,omitempty"`
 	Nickname string `json:"nickname,omitempty"`
 	Error    string `json:"error,omitempty"`
-	Account  *auth.Auth
+	// Warning 已保存但没能完整校验（连不上 Kiro 时先用导入的凭证建档）。
+	Warning string `json:"warning,omitempty"`
+	Account *auth.Auth
 }
 
 // Import 逐条导入（OAuth 凭证先刷新一次确认可用；API Key 先查一次额度确认有效）。
+// 凭证被上游拒绝才算失败；只是连不上 Kiro 的话照样保存并给出 warning（见 createAccountEx）。
 func (s *Service) Import(ctx context.Context, items []kiro.ImportItem) []ImportResult {
 	return s.importWith(ctx, items, "import", true)
 }
@@ -272,12 +275,12 @@ func (s *Service) Import(ctx context.Context, items []kiro.ImportItem) []ImportR
 func (s *Service) importWith(ctx context.Context, items []kiro.ImportItem, source string, forceRefresh bool) []ImportResult {
 	out := make([]ImportResult, 0, len(items))
 	for _, it := range items {
-		a, err := s.createAccount(ctx, it, source, forceRefresh)
+		a, warn, err := s.createAccountEx(ctx, it, source, forceRefresh, true)
 		if err != nil {
 			out = append(out, ImportResult{Error: err.Error(), Nickname: firstNonEmpty(it.Nickname, it.Email)})
 			continue
 		}
-		out = append(out, ImportResult{OK: true, UID: a.UID, Nickname: a.Nickname, Account: a})
+		out = append(out, ImportResult{OK: true, UID: a.UID, Nickname: a.Nickname, Warning: warn, Account: a})
 	}
 	return out
 }
@@ -428,9 +431,19 @@ func (s *Service) SetOverage(ctx context.Context, a *auth.Auth, enabled bool) (O
 // createAccount 由凭证建档：OAuth 凭证（forceRefresh 或 access token 将过期时）先刷新，
 // 补 profileArn，再查一次额度拿邮箱 / userId（也顺带验证凭证），最后落盘。
 func (s *Service) createAccount(ctx context.Context, it kiro.ImportItem, source string, forceRefresh bool) (*auth.Auth, error) {
+	a, _, err := s.createAccountEx(ctx, it, source, forceRefresh, false)
+	return a, err
+}
+
+// createAccountEx 同 createAccount。offlineOK=true（批量导入用）时，刷新 token 只是因为连不上 Kiro 而失败
+// （网络 / 出口问题，凭证本身没被拒绝），仍用导入文件里的凭证先建档，跳过所有需要联网的步骤（补 profileArn、
+// 查额度），并通过 warning 说明「没能校验」。账号进池后由后台刷新 / 余额查询在出口修好之后补上，
+// 凭证真有问题时那时才会被禁用。这样服务器暂时连不上 AWS 也不会把导入整个卡死。
+func (s *Service) createAccountEx(ctx context.Context, it kiro.ImportItem, source string, forceRefresh, offlineOK bool) (a *auth.Auth, warning string, err error) {
 	if strings.TrimSpace(s.AuthDir) == "" {
-		return nil, errors.New("auth_dir 未配置")
+		return nil, "", errors.New("auth_dir 未配置")
 	}
+	offline := false
 	cred := kiro.Cred{
 		AccessToken: it.AccessToken, RefreshToken: it.RefreshToken, ExpiresAt: it.ExpiresAt,
 		AuthMethod: it.AuthMethod, Provider: it.Provider, Region: it.Region,
@@ -441,8 +454,8 @@ func (s *Service) createAccount(ctx context.Context, it kiro.ImportItem, source 
 	if cred.IsExternalIDP() {
 		// 企业 SSO 是公共客户端：不存 clientSecret；端点 / scope 入库前再校验一遍。
 		cred.ClientSecret = ""
-		if err := kiro.ValidateExternalIdpConfig(cred.ClientID, cred.TokenEndpoint, cred.IssuerURL, cred.Scopes); err != nil {
-			return nil, fmt.Errorf("企业 SSO 配置无效：%v", err)
+		if verr := kiro.ValidateExternalIdpConfig(cred.ClientID, cred.TokenEndpoint, cred.IssuerURL, cred.Scopes); verr != nil {
+			return nil, "", fmt.Errorf("企业 SSO 配置无效：%v", verr)
 		}
 	}
 	if cred.IsAPIKey() {
@@ -455,31 +468,42 @@ func (s *Service) createAccount(ctx context.Context, it kiro.ImportItem, source 
 			rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			ts, kerr := s.Client.Refresh(rctx, cred)
 			cancel()
-			if kerr != nil {
-				return nil, fmt.Errorf("刷新 token 失败：%v", kerr)
-			}
-			cred.AccessToken, cred.RefreshToken, cred.ExpiresAt = ts.AccessToken, ts.RefreshToken, ts.ExpiresAt
-			if ts.ProfileArn != "" && cred.ProfileArn == "" {
-				cred.ProfileArn = ts.ProfileArn
+			switch {
+			case kerr == nil:
+				cred.AccessToken, cred.RefreshToken, cred.ExpiresAt = ts.AccessToken, ts.RefreshToken, ts.ExpiresAt
+				if ts.ProfileArn != "" && cred.ProfileArn == "" {
+					cred.ProfileArn = ts.ProfileArn
+				}
+			// 只有导入文件里带着 access token 才能先存（账号文件不接受空 access token）；
+			// 只有 refresh token 的行格式必须联网换出 access token，连不上就如实报错。
+			case offlineOK && kerr.Kind == kiro.KindTransport && strings.TrimSpace(cred.RefreshToken) != "" && cred.AccessToken != "":
+				offline = true
+				warning = "没能联网校验（" + kerr.Error() + "），已先用导入的凭证保存；服务器能连上 Kiro 之后，后台刷新会补全并确认，凭证无效的话那时才会被禁用"
+				log.Printf("WARN: [kiro] import saved offline (unverified): %v", kerr)
+				if cred.IsExternalIDP() {
+					cred.ProfileArn = "" // 没法核对 profileArn，不采信导入文件里的值；首次使用时会重新获取
+				}
+			default:
+				return nil, "", fmt.Errorf("刷新 token 失败：%v", kerr)
 			}
 		}
-		if cred.IsExternalIDP() && cred.ProfileArn != "" {
+		if !offline && cred.IsExternalIDP() && cred.ProfileArn != "" {
 			// 企业 SSO 的 profileArn 只接受该凭证自己能列出来的，不让外部输入把任意数据面 ARN 钉到一个可用凭证上。
 			pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			profiles, kerr := s.Client.ListProfiles(pctx, cred)
 			cancel()
 			if kerr != nil {
-				return nil, fmt.Errorf("无法核对 profileArn：%v", kerr)
+				return nil, "", fmt.Errorf("无法核对 profileArn：%v", kerr)
 			}
 			found := false
 			for _, p := range profiles {
 				found = found || p.ARN == cred.ProfileArn
 			}
 			if !found {
-				return nil, errors.New("profileArn 不在该账号可用的 profile 列表里")
+				return nil, "", errors.New("profileArn 不在该账号可用的 profile 列表里")
 			}
 		}
-		if cred.ProfileArn == "" {
+		if !offline && cred.ProfileArn == "" {
 			pctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 			if arn, kerr := s.Client.ResolveProfileArn(pctx, cred); kerr == nil && arn != "" {
 				cred.ProfileArn = arn
@@ -487,16 +511,25 @@ func (s *Service) createAccount(ctx context.Context, it kiro.ImportItem, source 
 			cancel()
 		}
 	}
-	uctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	usage, uerr := s.Client.UsageLimits(uctx, cred)
-	cancel()
+	var (
+		usage kiro.Usage
+		uerr  *kiro.Error
+	)
+	if !offline {
+		uctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		usage, uerr = s.Client.UsageLimits(uctx, cred)
+		cancel()
+	}
 	if uerr != nil {
 		switch uerr.Kind {
 		case kiro.KindAuth, kiro.KindSessionDead, kiro.KindSuspended:
-			return nil, fmt.Errorf("凭证校验失败：%v", uerr)
+			return nil, "", fmt.Errorf("凭证校验失败：%v", uerr)
 		}
 		// 网络抖动 / 服务端错误不阻止建档（额度稍后由后台刷新补上）。
 		log.Printf("WARN: [kiro] new account: usage check failed (account saved anyway): %v", uerr)
+		if offlineOK && uerr.Kind == kiro.KindTransport {
+			warning = "没能联网查询额度（" + uerr.Error() + "），账号已保存；额度稍后由后台刷新补上"
+		}
 	}
 	email := firstNonEmpty(usage.Email, it.Email)
 	if email == "" && cred.IsExternalIDP() {
@@ -526,12 +559,12 @@ func (s *Service) createAccount(ctx context.Context, it kiro.ImportItem, source 
 	if meta.AuthMethod == "" {
 		meta.AuthMethod = "social"
 	}
-	a := auth.NewKiro(uid, nick, cred.AccessToken, cred.RefreshToken, cred.ExpiresAt, meta)
-	a.FilePath = filepath.Join(s.AuthDir, auth.KiroFileName(uid))
-	if err := a.SaveAtomic(); err != nil {
-		return nil, err
+	acct := auth.NewKiro(uid, nick, cred.AccessToken, cred.RefreshToken, cred.ExpiresAt, meta)
+	acct.FilePath = filepath.Join(s.AuthDir, auth.KiroFileName(uid))
+	if serr := acct.SaveAtomic(); serr != nil {
+		return nil, "", serr
 	}
-	return a, nil
+	return acct, warning, nil
 }
 
 // CatalogOpts RefreshCatalogs 的选项。

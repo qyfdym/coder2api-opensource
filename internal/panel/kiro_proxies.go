@@ -22,6 +22,9 @@ import (
 // kiroProxiesMaxBody 粘贴文本上限（200 行代理远小于这个值）。
 const kiroProxiesMaxBody = 256 << 10
 
+// kiroDirectTestID 「测试服务器直连」使用的伪 ID（真实代理 ID 是 10 位十六进制，不会冲突）。
+const kiroDirectTestID = "direct"
+
 // kiroProxiesReady 需要 Kiro 启用且代理池存储就绪。
 func (p *Panel) kiroProxiesReady(w http.ResponseWriter) bool {
 	if !p.kiroEnabled(w) {
@@ -121,9 +124,13 @@ func (p *Panel) kiroProxiesList(w http.ResponseWriter, r *http.Request) {
 	for _, e := range p.cfg.Kiro.Proxies.List() {
 		rows = append(rows, row(e.ID, e.URL, e.Note, "panel", e.Enabled))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"proxies": rows, "accounts": accounts, "pool_active": len(members) > 0, "max": kiroacct.MaxManagedProxies,
-	})
+	}
+	if t, ok := p.krProxyTests.Load(kiroDirectTestID); ok {
+		resp["direct_test"] = t
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func hasProxyAuth(raw string) bool {
@@ -253,6 +260,15 @@ func (p *Panel) kiroProxiesTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	if id == kiroDirectTestID {
+		// 不经任何代理测服务器自己的出口：登录 / 导入失败时用来区分「服务器连不上 AWS」和「代理有问题」。
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+		res := p.cfg.Kiro.Client.TestDirect(ctx)
+		p.krProxyTests.Store(id, res)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "test": res})
+		return
+	}
 	target := ""
 	if e, ok := p.cfg.Kiro.Proxies.Get(id); ok {
 		target = e.URL

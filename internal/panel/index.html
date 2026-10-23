@@ -1052,6 +1052,7 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
           <h3>Kiro 代理池 <span class="hint">Kiro 只对海外出口 IP 放出 Claude；国内服务器要走海外代理</span></h3>
           <span class="grow"></span>
           <span class="note" id="kpNote"></span>
+          <button class="xs" id="kpTestDirect" title="不经任何代理，测试服务器自己能不能连到 Kiro">测试服务器直连</button>
           <button class="xs" id="kpTestAll">测试全部</button>
           <button class="xs" id="kpReload">刷新</button>
         </header>
@@ -1069,6 +1070,7 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
             <button class="primary xs" id="kpAdd">添加到代理池</button>
           </div>
           <div class="kr-res" id="kpRes"></div>
+          <div class="kr-res" id="kpDirect" style="max-height:none"></div>
         </div>
         <div class="tbl-wrap">
         <table class="acc md">

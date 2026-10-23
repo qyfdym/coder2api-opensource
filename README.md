@@ -169,6 +169,10 @@ Kiro 协议由 Go 原生实现（`internal/kiro`，移植自 [Quorinex/Kiro-Go](
 
 **Kiro 代理池页**：左侧「设置」下的「Kiro 代理池」。一次可以粘贴多行，每行一个，支持 `socks5://user:pass@host:port`、`http://host:port`、`host:port`、`user:pass@host:port`、`host:port:user:pass`（没写协议的按页面上选的 HTTP / SOCKS5），地址后面空格接备注，`#` 开头的行忽略。添加后立即生效并自动测试一遍：测试经这个代理访问 Kiro 入口，显示是否连通、延迟、出口 IP 与国家（国家取自 ipinfo.io，查不到不影响连通结论；出口在中国大陆的代理拿不到 Claude，会标红提示）。每个代理可以单独测试、停用、启用、删除，已停用的也能测。池子变化后，出口因此改变的账号会作废缓存的模型目录与「模型不可用」冷却，下次按新出口重拉。代理存放在 `state_file` 同目录的 `kiro-proxies.json`（含代理密码，权限 0600，`data/` 默认已被 `.gitignore` 忽略），页面和日志里只显示脱敏后的 `scheme://host:port`，上限 200 个。代理地址只支持 `http` / `https` / `socks5`，机场订阅里的 vmess / vless / trojan 等节点不能直接填。WorkBuddy 和 Qoder 不受影响；**不要**给网关设 `HTTPS_PROXY` 环境变量（那会让它们也走代理）。反向代理（Nginx 等）只管入站，和出站代理无关。
 
+**登录 / 导入报「连接 Kiro 上游失败」怎么查**：错误文本里的 `[出口：…]` 写明这次请求走的是服务器直连、默认代理还是代理池里的哪一个，后面是 net/http 的原因（`proxyconnect … refused` = 代理没起来；`request canceled while waiting for connection` / `context deadline exceeded` = 连上了代理或网络但一直没接通，常见于服务器到 AWS 被丢包，或代理节点出不去）。「Kiro 代理池」页头的「测试服务器直连」不经任何代理，直接测服务器自己能不能连到 Kiro、出口 IP 在哪个国家：连不上，登录、导入、刷新就全部失败，必须先加一个能用的海外代理；能连上但国家是 CN，登录没问题，只是拿不到 Claude。代理拨号 10 秒连不上、或连上了却一直不接通隧道，都会让该代理暂时被跳过（账号顺延到池里的下一个）。
+
+**导入在连不上 Kiro 时**：导入的 JSON 带 access token（如 Kiro Account Manager 导出的账号文件）的话，刷新 token 因为网络连不上而失败时，账号仍会先用导入的凭证保存入池，结果里标「已保存，未校验」，服务器能连上 Kiro 后由后台刷新补全，凭证真的失效那时才会被禁用。凭证被上游明确拒绝仍然是导入失败；只有 refresh token 的行格式必须联网换 access token，连不上就如实失败。
+
 **思考强度**：Kiro 默认不思考，请求带以下任一写法即开启（显式关闭优先）：
 
 | 请求 | Kiro 思考预算（max_thinking_length） |

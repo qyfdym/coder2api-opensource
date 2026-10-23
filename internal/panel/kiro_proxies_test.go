@@ -5,6 +5,7 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -161,6 +162,13 @@ func TestKiroProxyPoolRejectsBadRequests(t *testing.T) {
 			t.Errorf("add %q: want 400, got %d", body, code)
 		}
 	}
+	// 「测试服务器直连」：不经代理，结果记在列表里。
+	if code, out := kiroDo(t, p, "POST", base+"/direct/test", ""); code != 200 || out["test"].(map[string]any)["ok"] != true {
+		t.Errorf("direct test: %d %v", code, out)
+	}
+	if code, out := kiroDo(t, p, "GET", base, ""); code != 200 || out["direct_test"] == nil {
+		t.Errorf("the direct test result must be listed: %d %v", code, out)
+	}
 	for _, path := range []string{"/enabled", "/remove", "/test"} {
 		if code, _ := kiroDo(t, p, "POST", base+"/nope"+path, `{"enabled":true}`); code != 404 {
 			t.Errorf("unknown id %s: want 404, got %d", path, code)
@@ -222,5 +230,48 @@ func TestKiroProxyPoolNeedsStore(t *testing.T) {
 	}
 	if code, _ := kiroDo(t, p, "GET", "/panel/api/kiro/proxies", ""); code != http.StatusNotImplemented {
 		t.Errorf("want 501, got %d", code)
+	}
+}
+
+// 服务器连不上 Kiro 时导入：凭证先保存入池，并明确告诉用户「没校验」，而不是整条导入失败。
+type kiroDownRT struct{}
+
+func (kiroDownRT) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, &net.OpError{Op: "dial", Net: "tcp", Err: context.DeadlineExceeded}
+}
+
+func TestKiroImportWhileKiroUnreachableWarns(t *testing.T) {
+	pl := pool.New("")
+	svc := &kiroacct.Service{
+		Client:  kiro.NewClient(kiro.Options{Transport: kiroDownRT{}, Logf: t.Logf}),
+		AuthDir: t.TempDir(),
+	}
+	p := New(Config{Version: "test", APIKey: "test-key", Pool: pl, Kiro: svc})
+	// 账号管理器导出的 JSON：带 access token，可以先存。
+	exported := `[{"email":"me@example.com","userId":"user-off","accessToken":"at-old","refreshToken":"refresh-token-aaaaaaaa",` +
+		`"clientId":"cid","clientSecret":"csecret","authMethod":"IdC","provider":"BuilderId","region":"us-east-1","expiresAt":"2020-01-01T00:00:00Z"}]`
+	body, _ := json.Marshal(map[string]string{"text": exported})
+	code, out := kiroDo(t, p, "POST", "/panel/api/kiro/import", string(body))
+	warns, _ := out["warnings"].([]any)
+	if code != 200 || out["imported"] != float64(1) || len(warns) != 1 || !strings.Contains(warns[0].(string), "没能联网校验") {
+		t.Fatalf("import: %d %v", code, out)
+	}
+	if failed, _ := out["failed"].([]any); len(failed) != 0 {
+		t.Errorf("nothing may be reported as failed: %v", failed)
+	}
+	if n := len(pl.List()); n != 1 {
+		t.Errorf("the account must be in the pool, got %d", n)
+	}
+	raw, _ := json.Marshal(out)
+	if strings.Contains(string(raw), "refresh-token-aaaaaaaa") || strings.Contains(string(raw), "csecret") {
+		t.Errorf("credentials leaked in the response: %s", raw)
+	}
+
+	// 只有 refresh token 的行格式必须联网换 access token：连不上就如实失败，并写明出口。
+	line, _ := json.Marshal(map[string]string{"text": "other@example.com----pw----refresh-token-bbbbbbbb----cid----csecret"})
+	code, out = kiroDo(t, p, "POST", "/panel/api/kiro/import", string(line))
+	failed, _ := out["failed"].([]any)
+	if code != 200 || out["imported"] != float64(0) || len(failed) != 1 || !strings.Contains(failed[0].(string), "出口：") {
+		t.Fatalf("a refresh-token-only line cannot be saved offline and must name the egress: %d %v", code, out)
 	}
 }
