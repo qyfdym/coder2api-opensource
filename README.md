@@ -5,13 +5,13 @@
 <h1 align="center">Coder2API</h1>
 
 <p align="center">
-  <b>把 WorkBuddy（腾讯 CodeBuddy）、Qoder 与 Kiro 账号放进同一个账号池、对外提供一个 OpenAI 兼容 API 的多账号网关 · 附 Web 管理面板</b><br>
-  Web 面板 · OAuth 浏览器登录 · 账号池轮转 · 熔断与冷却 · 会话粘性 · 定时签到 / 活跃 / 旅行 / 保活 · <b>成长任务一键完成（17/18）</b> · 流式 / 非流式
+  <b>把 WorkBuddy（腾讯 CodeBuddy）、Qoder 与 Kiro 账号放进同一个账号池、对外提供 OpenAI 与 Anthropic 两种兼容 API 的多账号网关 · 附 Web 管理面板</b><br>
+  Web 面板 · OAuth 浏览器登录 · 账号池轮转 · 熔断与冷却 · 会话粘性 · <b>代理池与机场订阅</b> · <b>Claude Desktop / Claude Code 直连</b> · 定时签到 / 活跃 / 旅行 / 保活 · <b>成长任务一键完成（17/18）</b> · 流式 / 非流式
 </p>
 
 <p align="center">
   <img alt="Go" src="https://img.shields.io/badge/Go-1.22.5-00ADD8?logo=go&logoColor=white&style=flat-square">
-  <img alt="API" src="https://img.shields.io/badge/API-OpenAI_Compatible-412991?style=flat-square">
+  <img alt="API" src="https://img.shields.io/badge/API-OpenAI%20%7C%20Anthropic_Compatible-412991?style=flat-square">
   <img alt="Deploy" src="https://img.shields.io/badge/Deploy-Single_Binary%20%7C%20Docker-2496ED?style=flat-square">
   <img alt="Transport" src="https://img.shields.io/badge/Transport-SSE%20%2F%20Streaming-0DBD8B?style=flat-square">
 </p>
@@ -62,7 +62,8 @@ Coder2API（原 WorkBuddy2API）是一个自托管的 **OpenAI 兼容反向代�
 
 - 官方不提供 OpenAI 形态的开放 API，本项目通过 **OAuth 设备授权**（面板「添加账号」或 `login.sh`）获取账号凭证，在网关侧做 token 自动刷新、账号池调度与流量治理；
 - 面向 **个人多账号** 场景：多账号共享、单号故障自动换号、冷却 / 熔断防止雪崩、会话粘性保证多轮上下文不跳号；
-- 对客户端只暴露 OpenAI 兼容接口，现有 SDK / 前端 / 工具 **零改造接入**。
+- 对客户端暴露 OpenAI 兼容（`/v1/chat/completions`）和 Anthropic 兼容（`/v1/messages`）两套接口，现有 SDK / 前端 / 工具 **零改造接入**；Claude Desktop、Claude Code 这类只会说 Anthropic 协议的客户端可以直接连；
+- Kiro 需要海外出口 IP 才有 Claude：内置**代理池**（手动添加的代理 + 机场订阅里勾选的节点，由网关托管 mihomo 内核），账号按稳定规则分配出口，连不上自动顺延，不会悄悄改走直连。
 
 > ⚠️ 合规须知：本项目是**非官方**网关，使用 CodeBuddy 账号作为上游，**仅限本人授权账号、本机 / 私有环境测试**。详细边界见[安全与合规](#安全与合规)。
 
@@ -381,7 +382,7 @@ Kiro 协议由 Go 原生实现（`internal/kiro`，移植自 [Quorinex/Kiro-Go](
 
 ```mermaid
 flowchart LR
-    Client["客户端 / SDK\nOpenAI 兼容请求"] --> H
+    Client["客户端 / SDK\nOpenAI / Anthropic 兼容请求"] --> H
 
     subgraph GWI["WorkBuddy2API 网关 :7863"]
         H["HTTP Handler\n鉴权 · 请求体上限 · 提示词改写 · 轮转"] --> P
@@ -975,11 +976,14 @@ http://127.0.0.1:7863/panel/
 | 端点 | 鉴权 | 说明 |
 |---|---|---|
 | `POST /v1/chat/completions` | Bearer（`api_key` 非空时） | OpenAI 兼容补全；流式/非流式；请求体上限 8 MiB |
-| `GET /v1/models` | Bearer（`api_key` 非空时） | 模型列表（纯动态拉取，缓存 1h；失败返回空列表 + 5min 负缓存）；每模型带 `context_length`/`max_output_tokens`（四级查找链：上游目录 → 内置知识表 → model.json 缓存 → models.dev）、`reasoning_supported_efforts`/`reasoning_default_effort` 思考档位及描述/标签/倍率等全字段（上游有返回时） |
+| `POST /v1/messages` | Bearer 或 `x-api-key` | Anthropic Messages 兼容对话；流式/非流式；`claude-*` 裸名走 Kiro，详见 [Anthropic 兼容接口](#anthropic-兼容接口claude-desktop--claude-code) |
+| `POST /v1/messages/count_tokens` | Bearer 或 `x-api-key` | Anthropic 输入 token 估算（本地计算，不打上游） |
+| `GET /v1/models/{id}` | Bearer 或 `x-api-key` | 单个模型；Anthropic 客户端得到 Anthropic 形态，其余同 `/v1/models` 的条目 |
+| `GET /v1/models` | Bearer 或 `x-api-key` | 模型列表；请求带 `anthropic-version` 头（或只带 `x-api-key`）时返回 Anthropic 形态（`data` / `has_more` / `first_id` / `last_id`），否则为 OpenAI 形态。（纯动态拉取，缓存 1h；失败返回空列表 + 5min 负缓存）；每模型带 `context_length`/`max_output_tokens`（四级查找链：上游目录 → 内置知识表 → model.json 缓存 → models.dev）、`reasoning_supported_efforts`/`reasoning_default_effort` 思考档位及描述/标签/倍率等全字段（上游有返回时） |
 | `GET /status` | Bearer（`api_key` 非空时） | 账号状态汇总 + 每账号详情（积分/冷却/熔断/在途/粘性）+ `model_locks`（按「域 + 模型」聚合的限流视图：可选 / 总数、锁定账号数、`state`、最早解锁与全池解锁时间、限流原因；无锁定为空） |
 | `GET /healthz` | 无 | 健康检查：有 healthy 且未占满账号返回 200，否则 503；响应带身份标识（见下） |
 
-> 鉴权规则：仅当 `api_key` 非空才校验 `Authorization: Bearer <api_key>`；**`api_key` 为空时上述端点直接放行**；`/healthz` 恒无鉴权。
+> 鉴权规则：仅当 `api_key` 非空才校验 `Authorization: Bearer <api_key>`（Anthropic 风格的 `x-api-key: <api_key>` 同样接受）；**`api_key` 为空时上述端点直接放行**；`/healthz` 恒无鉴权。
 
 `/healthz` 响应示例（200 / 503 同结构，仅状态码与计数变化）：
 
