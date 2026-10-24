@@ -207,7 +207,7 @@ Kiro 协议由 Go 原生实现（`internal/kiro`，移植自 [Quorinex/Kiro-Go](
 
 请求记录的「思考强度」列写实际发出的档位，没指定时为空。思考内容走 `delta.reasoning_content`，只在请求了思考且档位不是 `none` 时下发；`gpt-5.6-*` 的思考文本上游返回的是占位符 `...`（真机观察），`kimi-k3` 返回真实文本。没有 schema 的模型（`deepseek-3.2`、`glm-5`、`qwen3-coder-next` 等）仍走提示词开关。
 
-**调度与保号**：与其它平台共用选号、冷却、熔断、会话粘性。错误处置按 Kiro 语义：429 软冷却退避；账号封禁（`TEMPORARILY_SUSPENDED`）或登录失效停用；401/403 标记待刷新并短冷却（API Key 被拒直接停用）；额度耗尽硬冷却到下次重置；模型对该号不可用只锁该模型；容量不足（`INSUFFICIENT_MODEL_CAPACITY`）503 不换号。非流式请求遇到上游截断会在同一个号上重试两次。输出过长（已有输出后上游报 `ContentLengthExceededException`）和上下文用满（`contextUsagePercentage` ≥ 100 且没有结束原因）按 `finish_reason: "length"` 正常收尾，已经输出的内容不作废；还没有输出就报同一个异常是输入过长，不重试、不换入口。Kiro 没有签到：「全部签到」与定时签到对 Kiro 账号只刷新额度；token 保活、额度刷新跟随 `schedule`。跨平台回退顺序：WorkBuddy → Qoder → Kiro、Qoder → WorkBuddy → Kiro、Kiro → WorkBuddy → Qoder。
+**调度与保号**：与其它平台共用选号、冷却、熔断、会话粘性。错误处置按 Kiro 语义：429 软冷却退避；账号封禁（`TEMPORARILY_SUSPENDED`）或登录失效停用；401/403 标记待刷新并短冷却（API Key 被拒直接停用）；额度耗尽硬冷却到下次重置；模型对该号不可用只锁该模型；容量不足（`INSUFFICIENT_MODEL_CAPACITY`）503 不换号。一个入口返回限流 / 5xx 或连不上时会换下一个入口（三个入口的额度桶不同），换之前先停约 0.4 秒（±25% 抖动），避免对同一账号在一秒内连发三次；鉴权 / 封禁 / 额度类错误不换入口。出站请求只带 AWS SDK 风格的头，入站请求的任何头（包括 Claude Code 的 `user-agent`、`anthropic-beta`）和客户端 IP 都不会传给 Kiro 上游。非流式请求遇到上游截断会在同一个号上重试两次。输出过长（已有输出后上游报 `ContentLengthExceededException`）和上下文用满（`contextUsagePercentage` ≥ 100 且没有结束原因）按 `finish_reason: "length"` 正常收尾，已经输出的内容不作废；还没有输出就报同一个异常是输入过长，不重试、不换入口。Kiro 没有签到：「全部签到」与定时签到对 Kiro 账号只刷新额度；token 保活、额度刷新跟随 `schedule`。跨平台回退顺序：WorkBuddy → Qoder → Kiro、Qoder → WorkBuddy → Kiro、Kiro → WorkBuddy → Qoder。
 
 **配置**（`config.json`）：
 

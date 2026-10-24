@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"strings"
@@ -39,6 +40,22 @@ const (
 	maxStreamAttemptsPerEndpoint = 2
 	streamRetryBackoff           = 700 * time.Millisecond
 )
+
+// endpointFallbackPause 换入口前的停顿基数（±25% 抖动）。一个号被限流 / 上游 5xx 时，三个入口
+// 不留间隔地连发会在不到一秒内对同一账号打出 3 次请求；停一下既让限流窗口有机会滑过，也避免
+// 账号侧出现机械的突发。测试可置 0 跳过等待。
+var endpointFallbackPause = 400 * time.Millisecond
+
+// pauseBeforeNextEndpoint 在尝试下一个入口之前等待；没有下一个入口时不等。返回 false = ctx 已取消。
+func pauseBeforeNextEndpoint(ctx context.Context, epIdx, total int) bool {
+	if epIdx+1 >= total || endpointFallbackPause <= 0 {
+		return true
+	}
+	d := endpointFallbackPause
+	span := int64(d) / 2 // ±25% = 总宽度 50%
+	d = d - time.Duration(span/2) + time.Duration(rand.Int63n(span+1))
+	return sleepCtx(ctx, d)
+}
 
 func (c *Client) endpointsFor(cred Cred) []endpoint {
 	if cred.IsAPIKey() {
@@ -144,6 +161,9 @@ endpoints:
 					return last
 				}
 				c.logf("endpoint %s for %s failed: %v", ep.Name, cred.label(), err)
+				if !pauseBeforeNextEndpoint(ctx, epIdx, len(eps)) {
+					return &Error{Kind: KindTransport, Msg: "context canceled"}
+				}
 				continue endpoints
 			}
 			if resp.StatusCode != http.StatusOK {
@@ -158,6 +178,9 @@ endpoints:
 				// 带上上游的错误文本（服务端的报错，不含我们的凭证；截断）：只记状态码的话，
 				// 三个入口都 400 时根本无从判断是请求格式、账号权限还是模型问题。
 				c.logf("endpoint %s for %s: HTTP %d, trying next: %s", ep.Name, cred.label(), resp.StatusCode, truncate(strings.TrimSpace(string(raw)), 300))
+				if !pauseBeforeNextEndpoint(ctx, epIdx, len(eps)) {
+					return &Error{Kind: KindTransport, Msg: "context canceled"}
+				}
 				continue endpoints
 			}
 			emitted, perr := parseEventStream(resp.Body, cb)
