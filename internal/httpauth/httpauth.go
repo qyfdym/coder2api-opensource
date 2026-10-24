@@ -36,6 +36,19 @@ func VerifyBearer(r *http.Request, key string) bool {
 	return subtle.ConstantTimeCompare(digest(tok), digest(key)) == 1
 }
 
+// VerifyAPIKey 同 VerifyBearer，另外接受 Anthropic 风格的 x-api-key 请求头
+// （Claude Desktop / Claude Code / Anthropic SDK 只发这个头）。两种写法任一正确即放行。
+func VerifyAPIKey(r *http.Request, key string) bool {
+	if VerifyBearer(r, key) {
+		return true
+	}
+	k := r.Header.Get("x-api-key")
+	if k == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare(digest(k), digest(key)) == 1
+}
+
 // digest 返回 s 的 SHA-256（定长 32 字节，供常量时间比较）。
 func digest(s string) []byte {
 	sum := sha256.Sum256([]byte(s))

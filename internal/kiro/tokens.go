@@ -13,6 +13,9 @@ import (
 	"strings"
 )
 
+// EstimateTokens 文本的 token 估算（Anthropic 兼容接口的 count_tokens 与流开头的输入估算共用）。
+func EstimateTokens(text string) int { return estimateTokens(text) }
+
 func estimateTokens(text string) int {
 	if text == "" {
 		return 0

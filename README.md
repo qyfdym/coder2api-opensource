@@ -58,7 +58,7 @@
 
 ## 项目简介
 
-Coder2API（原 WorkBuddy2API）是一个自托管的 **OpenAI 兼容反向代理网关**，将腾讯 CodeBuddy（`copilot.tencent.com`）、Qoder（`qoder.com.cn` / `qoder.com`）与 Kiro（AWS CodeWhisperer / Amazon Q Developer）账号包装为统一的 `/v1/chat/completions` 服务。三个平台的账号在**同一个账号池**里调度，共用一个 `api_key`、一个面板，按模型名前缀区分平台（见 [Qoder 接入](#qoder-接入)、[Kiro 接入](#kiro-接入)）。
+Coder2API（原 WorkBuddy2API）是一个自托管的 **OpenAI 兼容反向代理网关**，将腾讯 CodeBuddy（`copilot.tencent.com`）、Qoder（`qoder.com.cn` / `qoder.com`）与 Kiro（AWS CodeWhisperer / Amazon Q Developer）账号包装为统一的 `/v1/chat/completions` 服务（另有 Anthropic 兼容的 `/v1/messages`，见 [Anthropic 兼容接口](#anthropic-兼容接口claude-desktop--claude-code)）。三个平台的账号在**同一个账号池**里调度，共用一个 `api_key`、一个面板，按模型名前缀区分平台（见 [Qoder 接入](#qoder-接入)、[Kiro 接入](#kiro-接入)）。
 
 - 官方不提供 OpenAI 形态的开放 API，本项目通过 **OAuth 设备授权**（面板「添加账号」或 `login.sh`）获取账号凭证，在网关侧做 token 自动刷新、账号池调度与流量治理；
 - 面向 **个人多账号** 场景：多账号共享、单号故障自动换号、冷却 / 熔断防止雪崩、会话粘性保证多轮上下文不跳号；
@@ -79,6 +79,7 @@ Coder2API（原 WorkBuddy2API）是一个自托管的 **OpenAI 兼容反向代�
 | ⏰ **定时任务** | 签到（09/21 点，末尾自动跑**连登管家**：兑换已解锁档位 + 抽完抽奖次数）+ 活跃上报（10 点，点亮连登 / 解锁领养 + streak 自检）+ 猫猫旅行（09/21 点，独立排程）+ token 保活（22 点），四类独立开关 |
 | ⚡ **流式 + 非流式** | 出站强制 `stream:true`；SSE 帧按规范白名单重建；非流式由本地聚合为单响应 |
 | 🧠 **推理模型兼容** | DeepSeek 思维链注入（`thinking.type=enabled` + 默认档）、`reasoning_content` 多轮回填、effort 档位自动降级 |
+| 🅰️ **Anthropic 兼容** | `POST /v1/messages`（流式 / 非流式）、`count_tokens`、Anthropic 形态的 `/v1/models`，`x-api-key` 鉴权；Claude Desktop / Claude Code 直连，`claude-*` 裸名走 Kiro，见 [Anthropic 兼容接口](#anthropic-兼容接口claude-desktop--claude-code) |
 | 🔍 **联网搜索** | `POST /v1/search/messages` 把上游 `/agenttool/v1/search` 包成 Anthropic Messages 兼容形态（DSH 等客户端的搜索 provider 零改动接入）；复用账号池选号 / 在途租约 / token 刷新 / 错误冷却，出站请求头对齐官方客户端 |
 | 💬 **系统提示词体系** | 网关自有提示词替换客户端 system（默认 `custom`），从源头消灭 system 来源的内容误报；`passthrough` 遇拦截自动降级重试 |
 | 🗑️ **指纹脱敏** | 出站请求体黑名单指纹字段清洗（可关闭），与提示词体系两层叠加 |
@@ -229,6 +230,31 @@ Kiro 协议由 Go 原生实现（`internal/kiro`，移植自 [Quorinex/Kiro-Go](
 **超额开关**：账号行的「超额」按钮读取并切换 Kiro 的超额设置（额度用完后上游继续放行，超出部分**按量计费**）。打开前会弹确认框，写明费用上限、单价和本周期已产生的费用；请求体必须显式带 `enabled`。打开后「额度用完」的号不再被冷却（调度器与面板口径一致），账号行会显示「超额」标记；关闭后额度仍是 0 的号会重新进入冷却。
 
 暂未支持：`/v1/responses`、web_search 模拟、提示词缓存估算与提示词过滤。
+
+## Anthropic 兼容接口（Claude Desktop / Claude Code）
+
+只会说 Anthropic 协议的客户端（Claude Desktop 的第三方网关「直连」、Claude Code、Anthropic SDK）可以直接连网关：
+
+| 接口 | 说明 |
+|---|---|
+| `POST /v1/messages` | 对话，流式与非流式。请求翻成 OpenAI `chat.completions` 后走原有的选号 / 轮换 / 冷却 / 跨平台回退 / 会话粘性 / 用量记账，输出再翻回 Anthropic 形态（`message_start` … `message_stop` 事件流，或单个 `message` 对象） |
+| `POST /v1/messages/count_tokens` | 输入 token 估算（本地计算，不打上游） |
+| `GET /v1/models` | 请求带 `anthropic-version` 头（或只带 `x-api-key`）时返回 Anthropic 形态（`data` / `has_more` / `first_id` / `last_id`），否则仍是 OpenAI 形态 |
+| `GET /v1/models/{id}` | 单个模型；Anthropic 客户端找不到时回 404 `not_found_error` |
+
+**鉴权**：`x-api-key: <api_key>` 与 `Authorization: Bearer <api_key>` 都认。Anthropic 客户端鉴权失败拿到的是 Anthropic 形态的 401（`authentication_error`），OpenAI 客户端的 401 形态不变。
+
+**模型名**：池里有 Kiro 账号时，`claude-*` 裸名走 Kiro，横线 / 点号版本号、日期快照、Claude Code 的 `[1m]` 后缀、`anthropic/` 前缀都接受（`claude-sonnet-4-5`、`claude-sonnet-4.5`、`claude-sonnet-4-5-20250929`、`claude-sonnet-4-5[1m]` 是同一个模型）。Kiro 目录里的其它模型（`glm-5`、`kimi-k3` 等）用裸名同样走 Kiro。要用其它平台就写前缀：`cn:` / `global:` / `qoder:` / `kiro:` 照旧。Anthropic 形态的模型列表把 Kiro 模型排在前面、用裸名（Claude 用横线写法，和 Claude Desktop 发出的名字一致），其它平台保留前缀。响应里的 `model` 是客户端发来的原名。
+
+**Claude Desktop**：第三方网关选「直连」，请求地址填网关根地址（如 `https://your-domain`，**不带** `/v1`），密钥填 `api_key`，模型填 `claude-sonnet-4-5` 这类名字（点号写法也行）。**Claude Code**：`ANTHROPIC_BASE_URL=https://your-domain`、`ANTHROPIC_API_KEY=<api_key>`（或 `ANTHROPIC_AUTH_TOKEN`），模型用 `--model claude-sonnet-4-5` 或 `ANTHROPIC_MODEL`。
+
+**翻译细节**：
+- `system`（字符串或块数组）、文本、图片（base64 / url）、`tool_use` / `tool_result`（含图片、`is_error`）、`tools` / `tool_choice`（`any` → `required`，`disable_parallel_tool_use` → `parallel_tool_calls:false`）、`stop_sequences`、`temperature`、`top_p` 都会转换。纯文本 `document` 转成文字；PDF 等二进制文档上游读不了，换成一句说明。没有 `input_schema` 的服务端工具（`web_search_*` 等）丢弃。
+- 思考：`thinking.type: enabled`（可带 `budget_tokens`）/ `adaptive` / `disabled` 与 `output_config.effort` 按上面 Kiro 的思考强度规则生效。思考内容以 `thinking` 块下发，签名是占位值 `coder2api`（上游不是 Anthropic，没有真签名）；历史里的思考块不转发给上游。
+- 工具调用块在流尾一次性发出（`content_block_start` + 一个 `input_json_delta` + `content_block_stop`），正文与思考实时流出。
+- 用量：`message_start` 里的 `input_tokens` 是本地估算，`message_delta.usage` 里是上游的真实用量（有缓存命中时拆出 `cache_read_input_tokens`）。`stop_reason`：有工具调用 → `tool_use`，`length` → `max_tokens`，`content_filter` → `refusal`，其余 → `end_turn`。
+- 错误：开流前的错误保留 HTTP 状态码，类型按状态映射（400 `invalid_request_error`、429 `rate_limit_error`、503 `overloaded_error`、其它 5xx `api_error` 等），`message` 是原文，网关提示附在括号里；流中途的上游错误以 `event: error` 结束。
+- 会话粘性：Claude Code 的 `metadata.user_id` 里带的 session id 用作会话键；没有时按内容派生（与 OpenAI 接口相同）。
 
 ## 🎯 成长任务一键完成（17/18）
 
@@ -505,6 +531,13 @@ curl -s http://localhost:7863/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hi"}],"stream":false}'
+
+# Anthropic Messages 对话（Claude Desktop / Claude Code 用的接口；claude-* 裸名走 Kiro）
+curl -sN http://localhost:7863/v1/messages \
+  -H "x-api-key: your-api-key" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"claude-sonnet-4-5","max_tokens":256,"stream":true,"messages":[{"role":"user","content":"hi"}]}'
 
 # 联网搜索（Anthropic Messages 兼容形态，走上游 /agenttool/v1/search）
 curl -s http://localhost:7863/v1/search/messages \

@@ -160,10 +160,13 @@ func NewHandler(cfg Config) *Handler {
 	}
 	h := &Handler{cfg: cfg, mux: http.NewServeMux()}
 	h.mux.HandleFunc("POST /v1/chat/completions", h.withAuth(h.chatCompletions))
-	// 联网搜索（Anthropic Messages 兼容形态，见 messages.go）。路径刻意不占用
-	// /v1/messages——那是 Anthropic 模型对话的标准路径，留给未来的 chat 转发。
+	// Anthropic Messages 兼容的对话接口（见 anthropic.go）：Claude Desktop / Claude Code 直连。
+	h.mux.HandleFunc("POST /v1/messages", h.withAuth(h.anthropicMessages))
+	h.mux.HandleFunc("POST /v1/messages/count_tokens", h.withAuth(h.anthropicCountTokens))
+	// 联网搜索（Anthropic Messages 兼容形态，见 messages.go）。与对话接口 /v1/messages 分开。
 	h.mux.HandleFunc("POST /v1/search/messages", h.withAuth(h.messages))
 	h.mux.HandleFunc("GET /v1/models", h.withAuth(h.models))
+	h.mux.HandleFunc("GET /v1/models/{id}", h.withAuth(h.modelByID))
 	h.mux.HandleFunc("GET /status", h.withAuth(h.status))
 	h.mux.HandleFunc("GET /healthz", h.healthz)
 	if cfg.Panel != nil {
@@ -209,7 +212,7 @@ func (h *Handler) tracedRequest(r *http.Request) bool {
 	if r.Method != http.MethodPost {
 		return false
 	}
-	return r.URL.Path == "/v1/chat/completions" || isSearchPath(r.URL.Path)
+	return r.URL.Path == "/v1/chat/completions" || r.URL.Path == "/v1/messages" || isSearchPath(r.URL.Path)
 }
 
 // isSearchPath 判断是否为搜索端点。
@@ -219,7 +222,12 @@ func isSearchPath(path string) bool {
 
 func (h *Handler) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !httpauth.VerifyBearer(r, h.loadLive().APIKey) {
+		// Bearer 与 Anthropic 风格的 x-api-key 都认（Claude Desktop / Claude Code 只发后者）。
+		if !httpauth.VerifyAPIKey(r, h.loadLive().APIKey) {
+			if isAnthropicClient(r) || anthropicPath(r.URL.Path) {
+				writeMessagesError(w, http.StatusUnauthorized, "authentication_error", "missing or invalid API key")
+				return
+			}
 			writeOpenAIError(w, http.StatusUnauthorized, "invalid_api_key", "missing or invalid API key")
 			return
 		}
@@ -335,6 +343,10 @@ const (
 // models 返回模型列表：纯动态（缓存 10min），失败/无号返回空列表（无静态兜底——
 // 拉不出目录即意味着上游不可用，假名单只会让客户端选到 11102 的模型）。
 func (h *Handler) models(w http.ResponseWriter, r *http.Request) {
+	if isAnthropicClient(r) {
+		h.anthropicModels(w, r) // Anthropic 客户端要的是 {data, has_more, first_id, last_id}
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
 		"data":   h.modelList(),

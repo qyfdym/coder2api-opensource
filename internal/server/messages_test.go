@@ -272,7 +272,7 @@ func TestMessagesSearchUpstreamErrorShape(t *testing.T) {
 }
 
 // TestMessagesRouteDoesNotShadowV1Messages 断言搜索端点没有占用 /v1/messages
-// （该路径保留给 Anthropic 模型对话）。
+// （该路径是 Anthropic 模型对话接口，见 anthropic.go）。
 func TestMessagesRouteDoesNotShadowV1Messages(t *testing.T) {
 	up := newSearchUpstream(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Error("不得打上游")
@@ -283,8 +283,9 @@ func TestMessagesRouteDoesNotShadowV1Messages(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader([]byte(`{}`)))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("POST /v1/messages code=%d want 404（该路径留给模型对话）", rec.Code)
+	// 由对话接口处理（缺 model → 本地 400），而不是搜索端点的「未声明 web_search」。
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "model: field required") {
+		t.Errorf("POST /v1/messages code=%d body=%s，应由对话接口处理", rec.Code, rec.Body.String())
 	}
 }
 
