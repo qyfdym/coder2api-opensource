@@ -254,7 +254,9 @@ Kiro 协议由 Go 原生实现（`internal/kiro`，移植自 [Quorinex/Kiro-Go](
 - 工具调用块在流尾一次性发出（`content_block_start` + 一个 `input_json_delta` + `content_block_stop`），正文与思考实时流出。
 - 用量：`message_start` 里的 `input_tokens` 是本地估算，`message_delta.usage` 里是上游的真实用量（有缓存命中时拆出 `cache_read_input_tokens`）。`stop_reason`：有工具调用 → `tool_use`，`length` → `max_tokens`，`content_filter` → `refusal`，其余 → `end_turn`。
 - 错误：开流前的错误保留 HTTP 状态码，类型按状态映射（400 `invalid_request_error`、429 `rate_limit_error`、503 `overloaded_error`、其它 5xx `api_error` 等），`message` 是原文，网关提示附在括号里；流中途的上游错误以 `event: error` 结束。
+- 对话中途的系统消息（`messages` 里 `role: "system"`，Claude Code 2.1.154 起用它下发技能列表、hook 上下文、轮次提醒）：文本以 `<system-reminder>` 并进前一条 user 消息（前面是工具结果时单独起一条 user 消息）。没有转成 OpenAI 的 system 消息，因为 WorkBuddy 的 `custom` 提示词模式会删掉所有 system 消息，Kiro 会把它们挪到最前面。`clear_at: "next_user_message"` 的提醒在后面出现新 user 消息后丢弃；只带 `output_config.effort` 的指令消息覆盖顶层档位；`tool_addition` / `tool_removal` 块忽略。
 - 会话粘性：Claude Code 的 `metadata.user_id` 里带的 session id 用作会话键；没有时按内容派生（与 OpenAI 接口相同）。
+- 请求在网关本地就被拒（JSON 不合法、缺 `model`、未知角色等）时，请求记录写上模型和原因，不再只显示「未选到账号」。
 
 ## 🎯 成长任务一键完成（17/18）
 

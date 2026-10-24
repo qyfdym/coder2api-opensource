@@ -66,13 +66,22 @@ func (h *Handler) anthropicMessages(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	routed := h.anthropicRouteModel(req.Model)
+	// reject 请求在本地就被拒（没走到选号）：请求记录里写上模型与原因，否则面板只显示「未选到账号」。
+	reject := func(msg string) {
+		if tr := requestTraceFrom(r); tr != nil {
+			tr.model = routed
+			tr.note = "Anthropic 请求格式不被网关接受（未发往上游）：" + msg
+		}
+		writeMessagesError(w, http.StatusBadRequest, "invalid_request_error", msg)
+	}
 	if len(req.Messages) == 0 {
-		writeMessagesError(w, http.StatusBadRequest, "invalid_request_error", "messages: at least one message is required")
+		reject("messages: at least one message is required")
 		return
 	}
-	body, err := anthropicToOpenAI(req, h.anthropicRouteModel(req.Model))
+	body, err := anthropicToOpenAI(req, routed)
 	if err != nil {
-		writeMessagesError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		reject(err.Error())
 		return
 	}
 	inner := r.Clone(r.Context())
@@ -96,19 +105,23 @@ func (h *Handler) anthropicCountTokens(w http.ResponseWriter, r *http.Request) {
 }
 
 func readAnthropicRequest(w http.ResponseWriter, r *http.Request) (*anthropicRequest, bool) {
+	fail := func(msg string) (*anthropicRequest, bool) {
+		if tr := requestTraceFrom(r); tr != nil {
+			tr.note = "Anthropic 请求格式不被网关接受（未发往上游）：" + msg
+		}
+		writeMessagesError(w, http.StatusBadRequest, "invalid_request_error", msg)
+		return nil, false
+	}
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeMessagesError(w, http.StatusBadRequest, "invalid_request_error", "failed to read request body: "+err.Error())
-		return nil, false
+		return fail("failed to read request body: " + err.Error())
 	}
 	var req anthropicRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
-		writeMessagesError(w, http.StatusBadRequest, "invalid_request_error", "request body is not valid JSON: "+err.Error())
-		return nil, false
+		return fail("request body is not valid JSON: " + err.Error())
 	}
 	if strings.TrimSpace(req.Model) == "" {
-		writeMessagesError(w, http.StatusBadRequest, "invalid_request_error", "model: field required")
-		return nil, false
+		return fail("model: field required")
 	}
 	return &req, true
 }

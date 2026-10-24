@@ -396,7 +396,9 @@ type requestTrace struct {
 	// model 非 chat 路径的模型标识（搜索写 "WorkBuddy搜索工具"）。chat 路径由
 	// chatStat.model 覆盖，二者不会同时生效。
 	model string
-	stat  *chatStat
+	// note 没走到 chat 调度就结束时的说明（如 Anthropic 请求在本地被拒的原因）；有 stat 时以 stat.note 为准。
+	note string
+	stat *chatStat
 	// 调用来源，进入 handler 时一次性采集（见 ServeHTTP / captureClientInfo）。
 	clientIP  string
 	userAgent string
@@ -474,6 +476,7 @@ func (t *requestTrace) event(status int) reqlog.Event {
 	if t.model != "" {
 		e.Model = t.model
 	}
+	e.Note = t.note
 	duration := time.Since(t.start)
 	e.DurationMs = duration.Milliseconds()
 	if e.DurationMs < 1 {

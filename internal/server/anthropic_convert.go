@@ -35,6 +35,9 @@ type anthropicRequest struct {
 type anthropicMessage struct {
 	Role    string          `json:"role"`
 	Content json.RawMessage `json:"content"`
+	// 以下两个只出现在 role=system 的对话中途系统消息上。
+	OutputConfig json.RawMessage `json:"output_config"` // 只调思考档位的指令消息（content 为空）
+	ClearAt      string          `json:"clear_at"`      // "next_user_message" = 只在本轮生效
 }
 
 type anthropicBlock struct {
@@ -208,6 +211,46 @@ func sessionFromMetadata(raw json.RawMessage) string {
 	return ""
 }
 
+// outputEffort output_config.effort。
+func outputEffort(raw json.RawMessage) string {
+	var oc struct {
+		Effort string `json:"effort"`
+	}
+	if json.Unmarshal(raw, &oc) != nil {
+		return ""
+	}
+	return strings.TrimSpace(oc.Effort)
+}
+
+// appendSystemReminder 对话中途的系统消息 → 并进前一条 user 消息末尾的 <system-reminder> 文本。
+//
+// 不转成 OpenAI 的 system 消息：WorkBuddy 的 custom 提示词模式会删掉所有 system 消息，Kiro 会把它们
+// 挪到最前面，位置和内容都保不住。并进 user 文本是 Claude Code 在 2.1.154 之前的原始写法
+// （技能列表、hook 上下文都以 <system-reminder> 放在 user 消息里），各平台都能原样收到。
+func appendSystemReminder(msgs []any, text string) []any {
+	if !strings.Contains(text, "<system-reminder>") {
+		text = "<system-reminder>\n" + text + "\n</system-reminder>"
+	}
+	if n := len(msgs); n > 0 {
+		if last, ok := msgs[n-1].(map[string]any); ok && last["role"] == "user" {
+			switch c := last["content"].(type) {
+			case string:
+				if c == "" {
+					last["content"] = text
+				} else {
+					last["content"] = c + "\n\n" + text
+				}
+				return msgs
+			case []any:
+				last["content"] = append(c, map[string]any{"type": "text", "text": text})
+				return msgs
+			}
+		}
+	}
+	// 前面是工具结果（tool 消息）或没有 user 消息：单独起一条 user 消息，形态与「tool_result + 文本」相同。
+	return append(msgs, map[string]any{"role": "user", "content": text})
+}
+
 // anthropicToOpenAI 把 Anthropic 请求翻成 OpenAI chat.completions 请求体（model 用路由后的名字）。
 func anthropicToOpenAI(req *anthropicRequest, model string) ([]byte, error) {
 	out := map[string]any{"model": model, "stream": req.Stream}
@@ -222,12 +265,39 @@ func anthropicToOpenAI(req *anthropicRequest, model string) ([]byte, error) {
 	if sys != "" {
 		msgs = append(msgs, map[string]any{"role": "system", "content": sys})
 	}
+	lastUser := -1
+	for i, m := range req.Messages {
+		if m.Role == "user" {
+			lastUser = i
+		}
+	}
+	// directiveEffort 对话中途「只调档位」的系统消息（content 为空 + output_config.effort）：
+	// 对其后的轮次生效，最后一条说了算，覆盖顶层 output_config。
+	directiveEffort := ""
 	for i, m := range req.Messages {
 		blocks, err := parseBlocks(m.Content)
 		if err != nil {
 			return nil, fmt.Errorf("messages.%d: %v", i, err)
 		}
 		switch m.Role {
+		case "system":
+			// 对话中途的系统消息（Claude Code 2.1.154 起用它下发技能列表、hook 上下文、轮次提醒）。
+			if e := outputEffort(m.OutputConfig); e != "" {
+				directiveEffort = e
+			}
+			if m.ClearAt == "next_user_message" && i < lastUser {
+				continue // 只在本轮生效的提醒：后面已经有新的 user 消息，Anthropic 不再渲染它
+			}
+			var texts []string
+			for _, b := range blocks {
+				// 只取文本；tool_addition / tool_removal（对话中途增删工具）上游没有对应能力，忽略。
+				if b.Type == "text" && strings.TrimSpace(b.Text) != "" {
+					texts = append(texts, b.Text)
+				}
+			}
+			if len(texts) > 0 {
+				msgs = appendSystemReminder(msgs, strings.Join(texts, "\n\n"))
+			}
 		case "assistant":
 			var text strings.Builder
 			var calls []any
@@ -288,7 +358,7 @@ func anthropicToOpenAI(req *anthropicRequest, model string) ([]byte, error) {
 				msgs = append(msgs, map[string]any{"role": "user", "content": parts})
 			}
 		default:
-			return nil, fmt.Errorf("messages.%d.role: %q is not one of user, assistant", i, m.Role)
+			return nil, fmt.Errorf("messages.%d.role: %q is not one of user, assistant, system", i, m.Role)
 		}
 	}
 	out["messages"] = msgs
@@ -362,11 +432,11 @@ func anthropicToOpenAI(req *anthropicRequest, model string) ([]byte, error) {
 			out["thinking"] = map[string]any{"type": "disabled"}
 		}
 	}
-	var oc struct {
-		Effort string `json:"effort"`
+	if e := outputEffort(req.OutputConfig); e != "" {
+		out["reasoning_effort"] = e
 	}
-	if json.Unmarshal(req.OutputConfig, &oc) == nil && oc.Effort != "" {
-		out["reasoning_effort"] = oc.Effort
+	if directiveEffort != "" {
+		out["reasoning_effort"] = directiveEffort
 	}
 	if sid := sessionFromMetadata(req.Metadata); sid != "" {
 		out["metadata"] = map[string]any{"conversation_id": sid}

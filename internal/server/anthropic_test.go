@@ -493,8 +493,95 @@ func TestAnthropicToOpenAI(t *testing.T) {
 		t.Errorf("json user_id session: %q", sid)
 	}
 	// 非法角色。
-	bad := &anthropicRequest{Messages: []anthropicMessage{{Role: "system", Content: json.RawMessage(`"x"`)}}}
+	bad := &anthropicRequest{Messages: []anthropicMessage{{Role: "tool", Content: json.RawMessage(`"x"`)}}}
 	if _, err := anthropicToOpenAI(bad, "m"); err == nil {
-		t.Error("role=system inside messages must be rejected")
+		t.Error("unknown roles must be rejected")
+	}
+}
+
+// 对话中途的系统消息（Claude Code 2.1.154+）：文本并进前一条 user 消息的 <system-reminder>；只在本轮
+// 生效且已过期的丢弃；只调档位的指令覆盖 output_config。
+func TestAnthropicMidConversationSystem(t *testing.T) {
+	convert := func(raw string) []map[string]any {
+		t.Helper()
+		var req anthropicRequest
+		if err := json.Unmarshal([]byte(raw), &req); err != nil {
+			t.Fatal(err)
+		}
+		body, err := anthropicToOpenAI(&req, "m")
+		if err != nil {
+			t.Fatalf("convert: %v", err)
+		}
+		var out struct {
+			Messages        []map[string]any `json:"messages"`
+			ReasoningEffort string           `json:"reasoning_effort"`
+		}
+		_ = json.Unmarshal(body, &out)
+		if out.ReasoningEffort != "" {
+			out.Messages = append(out.Messages, map[string]any{"role": "_effort", "content": out.ReasoningEffort})
+		}
+		return out.Messages
+	}
+
+	// Claude Code 实际发的形态：user 后面跟一条 system（技能列表）。
+	msgs := convert(`{"model":"m","system":"top","messages":[
+		{"role":"user","content":"你好"},
+		{"role":"system","content":"The following skills are available for use with the Skill tool: ..."}]}`)
+	if len(msgs) != 2 || msgs[0]["role"] != "system" || msgs[1]["role"] != "user" {
+		t.Fatalf("messages: %v", msgs)
+	}
+	if c := msgs[1]["content"].(string); !strings.HasPrefix(c, "你好\n\n<system-reminder>\nThe following skills") || !strings.HasSuffix(c, "</system-reminder>") {
+		t.Errorf("merged user content: %q", c)
+	}
+
+	// 工具结果之后：单独起一条 user 消息；过期的轮次提醒丢弃；块数组里只取文本。
+	msgs = convert(`{"model":"m","output_config":{"effort":"high"},"messages":[
+		{"role":"user","content":"run it"},
+		{"role":"system","content":"stale reminder","clear_at":"next_user_message"},
+		{"role":"assistant","content":[{"type":"tool_use","id":"c1","name":"bash","input":{}}]},
+		{"role":"user","content":[{"type":"tool_result","tool_use_id":"c1","content":"ok"}]},
+		{"role":"system","content":[{"type":"text","text":"fresh reminder"},{"type":"tool_removal","tool":{"type":"tool_reference","name":"bash"}}],"clear_at":"next_user_message"},
+		{"role":"system","content":[],"output_config":{"effort":"low"}}]}`)
+	var roles []string
+	for _, m := range msgs {
+		roles = append(roles, m["role"].(string))
+	}
+	if strings.Join(roles, ",") != "user,assistant,tool,user,_effort" {
+		t.Fatalf("roles: %v (%v)", roles, msgs)
+	}
+	if msgs[0]["content"] != "run it" {
+		t.Errorf("stale turn-scoped reminder must be dropped: %v", msgs[0])
+	}
+	if msgs[3]["content"] != "<system-reminder>\nfresh reminder\n</system-reminder>" {
+		t.Errorf("reminder after tool results: %v", msgs[3])
+	}
+	if msgs[4]["content"] != "low" {
+		t.Errorf("directive effort must override output_config: %v", msgs[4])
+	}
+}
+
+// 端到端：带对话中途系统消息的请求正常走到 Kiro；本地拒绝时请求记录写上模型与原因。
+func TestAnthropicMessagesSystemRoleEndToEnd(t *testing.T) {
+	up := &kiroUpstream{stream: bytes.Join([][]byte{
+		kiroESFrame("assistantResponseEvent", map[string]any{"content": "你好！"}),
+		kiroESFrame("metadataEvent", map[string]any{"stopReason": "end_turn"}),
+	}, nil)}
+	h, _, rl := newKiroHandler(t, nil, up, nil, kiroAcct("k1"))
+	rec := postAnthropic(h, "/v1/messages", `{"model":"claude-sonnet-5-5","max_tokens":100,"stream":true,
+		"messages":[{"role":"user","content":"你好"},{"role":"system","content":"skills: pdf, xlsx"}]}`, nil)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "message_stop") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if ob := up.lastBody(); !strings.Contains(ob, "skills: pdf, xlsx") || !strings.Contains(ob, `"modelId":"claude-sonnet-5.5"`) {
+		t.Errorf("outbound Kiro body: %.600s", ob)
+	}
+
+	rec = postAnthropic(h, "/v1/messages", `{"model":"claude-sonnet-5-5","max_tokens":100,
+		"messages":[{"role":"user","content":"hi"},{"role":"narrator","content":"x"}]}`, nil)
+	if rec.Code != 400 {
+		t.Fatalf("unknown role: status=%d", rec.Code)
+	}
+	if e := lastEvent(t, rl); e.Model != "kiro:claude-sonnet-5-5" || !strings.Contains(e.Note, "narrator") {
+		t.Errorf("request log: model=%q note=%q", e.Model, e.Note)
 	}
 }
