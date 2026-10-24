@@ -33,9 +33,7 @@ func (c *Client) ChatStream(ctx context.Context, cred Cred, body []byte) (io.Rea
 	ep := c.planEffort(req.Model, effortFromBody(body))
 	modelID := ep.kiroModel
 	payload := buildPayload(&req, modelID, ep.budget)
-	if ep.native && ep.nativeEffort != "" {
-		payload.AdditionalModelRequestFields = map[string]any{"reasoning": map[string]any{"effort": ep.nativeEffort}}
-	}
+	payload.AdditionalModelRequestFields = ep.requestFields()
 	plan := chatPlan{
 		model:    req.Model,
 		thinking: ep.thinking(),

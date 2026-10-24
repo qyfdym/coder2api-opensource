@@ -2,11 +2,11 @@ package kiro
 
 // 思考强度（reasoning_effort）→ Kiro 思考开关与预算。
 //
-// Kiro 没有结构化的 thinking 参数：思考靠系统提示词里的
+// 没有原生档位的模型（claude-4.5 系、deepseek、glm、qwen 等）：思考靠系统提示词里的
 // <thinking_mode>enabled</thinking_mode><max_thinking_length>N</max_thinking_length> 打开，
 // 上游随后以 reasoningContentEvent（或正文里的 <thinking> 块）下发思考内容。
-// 档位因此映射成 max_thinking_length 预算；客户端没要求思考时不开（Kiro 默认就是不思考）。
-// 例外：目录里声明了原生 reasoning.effort 档位的模型（gpt-5.6-*、kimi-k3 等）走请求体字段，见下文「原生档位」。
+// 档位因此映射成 max_thinking_length 预算；客户端没要求思考时不开（这些模型默认不思考）。
+// 目录里声明了原生档位的模型走请求体字段，提示词标签对它们不起作用，见下文「原生档位」。
 //
 // 开启思考的写法（任一即可，显式关闭优先）：
 //   - reasoning_effort / reasoningEffort / reasoning.effort / thinking.effort：low … max；
@@ -100,11 +100,23 @@ func (c *Client) OutboundEffort(model string, r EffortRequest) string {
 // 原生档位
 // ---------------------------------------------------------------------------
 //
-// 目录（ListAvailableModels）里有些模型带 additionalModelRequestFieldsSchema，声明了
-// reasoning.effort 的可选档位（真机：gpt-5.6-* 是 none/low/medium/high/xhigh/max，kimi-k3 是 low/high/max）。
-// 这类模型的思考由请求体顶层的 additionalModelRequestFields: {"reasoning":{"effort":X}} 控制，
-// 提示词里的 <thinking_mode> 标签对它们不起作用；档位不在 enum 里上游会返回 400，
-// 所以发送前先落到模型支持的档位上。没有 schema 的模型照旧走提示词开关。
+// 目录（ListAvailableModels）里有些模型带 additionalModelRequestFieldsSchema，声明了原生思考参数。
+// 真机（2026-10）有两种写法：
+//   - reasoning.effort：gpt-5.6-*（none/low/medium/high/xhigh/max）、kimi-k3（low/high/max）；
+//     发 additionalModelRequestFields: {"reasoning":{"effort":X}}。
+//   - thinking + output_config.effort（Anthropic adaptive thinking）：claude-opus/sonnet-4.6 起的全部 Claude
+//     （4.6 系没有 xhigh）；发 {"thinking":{"type":"adaptive"},"output_config":{"effort":X}}。
+//     thinking.type 的 enum 因模型而异：多数是 adaptive / disabled，claude-opus-5.5 只有 adaptive（关不掉），
+//     claude-sonnet-5.5 是 adaptive / between_tools；enabled + budget_tokens 一律 400。
+//     这些模型不带字段时按目录默认档自己思考（opus-5.5 默认 medium），提示词标签被当成普通文本忽略——
+//     所以客户端调档位必须走字段，否则 low 到 max 的效果完全一样。
+// 档位不在 enum 里上游会返回 400，所以发送前先落到模型支持的档位上。没有 schema 的模型照旧走提示词开关。
+
+// 原生档位写在请求体的哪个字段（Model.EffortField）。
+const (
+	effortFieldReasoning    = "reasoning"
+	effortFieldOutputConfig = "output_config"
+)
 
 // effortRank 档位强弱（用于把请求档位落到模型支持的档位上）。
 var effortRank = map[string]int{"none": 0, "low": 1, "medium": 2, "high": 3, "xhigh": 4, "max": 5}
@@ -114,9 +126,12 @@ type effortPlan struct {
 	kiroModel string
 	// budget 提示词方式的思考预算（0 = 不注入）；原生档位模型恒为 0。
 	budget int
-	// native 该模型走原生 reasoning.effort；nativeEffort 为空 = 不带这个字段（客户端没指定）。
+	// native 该模型走原生档位字段（field 是哪一种写法）；nativeEffort 为空 = 不带档位（客户端没指定）。
 	native       bool
+	field        string
 	nativeEffort string
+	// disable output_config 写法下显式关闭思考（发 thinking.type=disabled，模型支持时才会置位）。
+	disable bool
 	// label 展示用的实际档位（"off" / low…max；原生且没指定时为空）。
 	label string
 }
@@ -124,9 +139,32 @@ type effortPlan struct {
 // thinking 回包里是否保留思考内容。
 func (p effortPlan) thinking() bool {
 	if p.native {
-		return p.nativeEffort != "" && p.nativeEffort != "none"
+		return !p.disable && p.nativeEffort != "" && p.nativeEffort != "none"
 	}
 	return p.budget > 0
+}
+
+// requestFields 原生档位模型的 additionalModelRequestFields；nil = 不带（提示词开关模型，或客户端没指定）。
+func (p effortPlan) requestFields() map[string]any {
+	if !p.native {
+		return nil
+	}
+	if p.field == effortFieldOutputConfig {
+		if p.disable {
+			return map[string]any{"thinking": map[string]any{"type": "disabled"}}
+		}
+		if p.nativeEffort == "" {
+			return nil
+		}
+		return map[string]any{
+			"thinking":      map[string]any{"type": "adaptive"},
+			"output_config": map[string]any{"effort": p.nativeEffort},
+		}
+	}
+	if p.nativeEffort == "" {
+		return nil
+	}
+	return map[string]any{"reasoning": map[string]any{"effort": p.nativeEffort}}
 }
 
 // planEffort 决定这次请求的模型 id、思考方式与档位。
@@ -138,14 +176,22 @@ func (c *Client) planEffort(model string, r EffortRequest) effortPlan {
 		return plan
 	}
 	plan.native, plan.budget, plan.label = true, 0, ""
+	plan.field = m.EffortField
+	if plan.field == "" {
+		plan.field = effortFieldReasoning
+	}
 	eff := strings.ToLower(strings.TrimSpace(r.Effort))
 	explicitOff := effortOffWords[eff] || strings.EqualFold(strings.TrimSpace(r.ThinkingType), "disabled")
 	if label == "off" && !explicitOff {
 		return plan // 没指定：不带字段，上游按模型默认档运行
 	}
+	if explicitOff && plan.field == effortFieldOutputConfig && containsStr(m.ThinkingTypes, "disabled") {
+		plan.disable, plan.label = true, "off"
+		return plan
+	}
 	want := label
 	if explicitOff {
-		want = "none"
+		want = "none" // 关不掉的模型（opus-5.5 只有 adaptive）由 pickEffort 落到最低档
 	}
 	plan.nativeEffort = pickEffort(m.Efforts, want)
 	plan.label = plan.nativeEffort
@@ -179,39 +225,93 @@ func pickEffort(supported []string, want string) string {
 	return lowest
 }
 
-// nativeEffortSchema 解析目录里的 additionalModelRequestFieldsSchema，取出 reasoning.effort 的
-// 可选档位与默认档（只认已知档位名；没有这个字段返回 nil）。
-func nativeEffortSchema(raw json.RawMessage) (efforts []string, def string) {
+// effortSchema 目录里 additionalModelRequestFieldsSchema 声明的原生思考参数。
+type effortSchema struct {
+	efforts       []string // 可选档位（只认已知档位名，按目录顺序）
+	def           string   // 默认档（必须在 efforts 里，否则为空）
+	field         string   // effortFieldReasoning / effortFieldOutputConfig；空 = 没有原生档位
+	thinkingTypes []string // output_config 写法下 thinking.type 的 enum
+}
+
+type schemaEnum struct {
+	Enum    []string `json:"enum"`
+	Default string   `json:"default"`
+}
+
+// parseEffortSchema 解析 additionalModelRequestFieldsSchema：reasoning.effort（gpt / kimi）优先，
+// 其次 output_config.effort（Claude adaptive thinking）。都没有返回零值。
+func parseEffortSchema(raw json.RawMessage) effortSchema {
 	if len(raw) == 0 || string(raw) == "null" {
-		return nil, ""
+		return effortSchema{}
 	}
 	var s struct {
 		Properties struct {
 			Reasoning struct {
 				Properties struct {
-					Effort struct {
-						Enum    []string `json:"enum"`
-						Default string   `json:"default"`
-					} `json:"effort"`
+					Effort schemaEnum `json:"effort"`
 				} `json:"properties"`
 			} `json:"reasoning"`
+			OutputConfig struct {
+				Properties struct {
+					Effort schemaEnum `json:"effort"`
+				} `json:"properties"`
+			} `json:"output_config"`
+			Thinking struct {
+				Properties struct {
+					Type schemaEnum `json:"type"`
+				} `json:"properties"`
+			} `json:"thinking"`
 		} `json:"properties"`
 	}
 	if json.Unmarshal(raw, &s) != nil {
-		return nil, ""
+		return effortSchema{}
 	}
-	seen := map[string]bool{}
-	for _, e := range s.Properties.Reasoning.Properties.Effort.Enum {
-		e = strings.ToLower(strings.TrimSpace(e))
-		if _, known := effortRank[e]; known && !seen[e] {
-			seen[e] = true
-			efforts = append(efforts, e)
+	if es := knownEfforts(s.Properties.Reasoning.Properties.Effort); len(es.efforts) > 0 {
+		es.field = effortFieldReasoning
+		return es
+	}
+	es := knownEfforts(s.Properties.OutputConfig.Properties.Effort)
+	if len(es.efforts) == 0 {
+		return effortSchema{}
+	}
+	es.field = effortFieldOutputConfig
+	for _, t := range s.Properties.Thinking.Properties.Type.Enum {
+		if t = strings.ToLower(strings.TrimSpace(t)); t != "" {
+			es.thinkingTypes = append(es.thinkingTypes, t)
 		}
 	}
-	if d := strings.ToLower(strings.TrimSpace(s.Properties.Reasoning.Properties.Effort.Default)); seen[d] {
-		def = d
+	return es
+}
+
+func knownEfforts(e schemaEnum) effortSchema {
+	var out effortSchema
+	seen := map[string]bool{}
+	for _, v := range e.Enum {
+		v = strings.ToLower(strings.TrimSpace(v))
+		if _, known := effortRank[v]; known && !seen[v] {
+			seen[v] = true
+			out.efforts = append(out.efforts, v)
+		}
 	}
-	return efforts, def
+	if d := strings.ToLower(strings.TrimSpace(e.Default)); seen[d] {
+		out.def = d
+	}
+	return out
+}
+
+// nativeEffortSchema parseEffortSchema 的档位部分（可选档位与默认档）。
+func nativeEffortSchema(raw json.RawMessage) (efforts []string, def string) {
+	es := parseEffortSchema(raw)
+	return es.efforts, es.def
+}
+
+func containsStr(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // EffortInfo 模型对外公布的思考能力：支持的档位、默认档、能否关闭。
@@ -219,6 +319,9 @@ func nativeEffortSchema(raw json.RawMessage) (efforts []string, def string) {
 func (m Model) EffortInfo() (supported []string, def string, canDisable bool) {
 	if len(m.Efforts) == 0 {
 		return SupportedEfforts, "off", true
+	}
+	if m.EffortField == effortFieldOutputConfig && containsStr(m.ThinkingTypes, "disabled") {
+		canDisable = true
 	}
 	for _, e := range m.Efforts {
 		if e == "none" {

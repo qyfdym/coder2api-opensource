@@ -17,10 +17,16 @@ type Model struct {
 	MaxInput       int     `json:"max_input_tokens,omitempty"`
 	MaxOutput      int     `json:"max_output_tokens,omitempty"`
 	Vision         bool    `json:"vision,omitempty"`
-	// Efforts / DefaultEffort 模型原生的思考档位（目录里 additionalModelRequestFieldsSchema 的
-	// reasoning.effort，见 effort.go）；空 = 没有原生档位，思考靠提示词开关。
+	// Efforts / DefaultEffort 模型原生的思考档位（目录里 additionalModelRequestFieldsSchema 声明的，
+	// 见 effort.go）；空 = 没有原生档位，思考靠提示词开关。
 	Efforts       []string `json:"efforts,omitempty"`
 	DefaultEffort string   `json:"default_effort,omitempty"`
+	// EffortField 档位写在请求体的哪个字段：effortFieldReasoning（gpt-5.6、kimi-k3：reasoning.effort）
+	// 或 effortFieldOutputConfig（Claude 4.6 起：thinking.type=adaptive + output_config.effort）。
+	EffortField string `json:"effort_field,omitempty"`
+	// ThinkingTypes output_config 写法的模型接受的 thinking.type（如 adaptive、disabled；
+	// claude-opus-5.5 只有 adaptive，关不掉）。
+	ThinkingTypes []string `json:"thinking_types,omitempty"`
 }
 
 // fallbackModels 内置目录（动态目录拉不到时使用；与 Kiro-Go 的兜底列表一致）。

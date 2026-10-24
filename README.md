@@ -196,17 +196,26 @@ Kiro 协议由 Go 原生实现（`internal/kiro`，移植自 [Quorinex/Kiro-Go](
 
 无法识别的档位按 `high` 处理。思考内容走 `delta.reasoning_content`；请求记录的「思考强度」列写「请求档位 → 实际档位」。
 
-**原生档位模型**：模型目录里带 `additionalModelRequestFieldsSchema` 的模型（真机：`gpt-5.6-*`、`kimi-k3`）不走上面的提示词，而是由请求体的 `additionalModelRequestFields.reasoning.effort` 控制，档位和默认档以目录为准（`/v1/models` 的 `reasoning_supported_efforts` / `reasoning_default_effort` 如实反映）。上面表格里的各种写法照常识别，最后落到模型支持的档位上：
+**原生档位模型**：模型目录里带 `additionalModelRequestFieldsSchema` 的模型不走上面的提示词，档位写进请求体的 `additionalModelRequestFields`，提示词标签对它们无效。目录里有两种写法（2026-10 真机）：
+
+| 模型 | 发给上游的字段 | 档位 / 默认档 |
+|---|---|---|
+| `gpt-5.6-*`、`kimi-k3` | `{"reasoning":{"effort":X}}` | `gpt-5.6-*`：none … max，默认 `high`；`kimi-k3`：low / high / max，默认 `max` |
+| Claude 4.6 起的全部模型（`claude-opus-4.6` … `claude-opus-5.5`、`claude-sonnet-4.6` … `claude-sonnet-5.5`、`claude-haiku-5.5`） | `{"thinking":{"type":"adaptive"},"output_config":{"effort":X}}`（Anthropic 的 adaptive thinking） | low … max（4.6 系没有 `xhigh`）；默认档各不相同，如 `claude-opus-5.5` 是 `medium`、`claude-sonnet-5.5` 是 `high` |
+
+档位和默认档以目录为准（`/v1/models` 的 `reasoning_supported_efforts` / `reasoning_default_effort` 如实反映）。上面表格里的各种写法照常识别，最后落到模型支持的档位上：
 
 | 请求 | 实际发给上游 |
 |---|---|
-| 没指定思考相关字段 | 不带字段，按模型默认档运行（`gpt-5.6-*` 默认 `high`，`kimi-k3` 默认 `max`） |
+| 没指定思考相关字段 | 不带字段，按模型默认档运行（Claude 这些模型不带字段时也会按默认档自己思考，只是网关不下发思考内容） |
 | 档位在模型支持的列表里 | 原样发送 |
-| 档位不在列表里（如 `kimi-k3` 没有 `medium`） | 取不高于请求的最高档（`medium` → `low`），都比请求高就取最低档 |
-| 关闭（`none` / `off` / `thinking.type: disabled`） | 模型有 `none` 档就发 `none`；没有（`kimi-k3`）就落到最低档 `low`，该模型无法真正关闭 |
+| 档位不在列表里（如 `kimi-k3` 没有 `medium`，4.6 系没有 `xhigh`） | 取不高于请求的最高档（`medium` → `low`，`xhigh` → `high`），都比请求高就取最低档 |
+| 关闭（`none` / `off` / `thinking.type: disabled`） | 模型能关就关（`gpt-5.6-*` 发 `none`，多数 Claude 发 `thinking.type: disabled`）；关不掉的（`kimi-k3`、`claude-opus-5.5`、`claude-sonnet-5.5`）落到最低档 `low` |
 | 认不出的档位 | 按 `high` 处理，再落到支持的档位 |
 
-请求记录的「思考强度」列写实际发出的档位，没指定时为空。思考内容走 `delta.reasoning_content`，只在请求了思考且档位不是 `none` 时下发；`gpt-5.6-*` 的思考文本上游返回的是占位符 `...`（真机观察），`kimi-k3` 返回真实文本。没有 schema 的模型（`deepseek-3.2`、`glm-5`、`qwen3-coder-next` 等）仍走提示词开关。
+请求记录的「思考强度」列写实际发出的档位，没指定时为空。思考内容走 `delta.reasoning_content`（Anthropic 接口里是 `thinking` 块），只在请求了思考且没有关闭时下发；`gpt-5.6-*` 的思考文本上游返回的是占位符 `...`（真机观察），`kimi-k3` 和 Claude 返回真实文本。没有 schema 的模型（`claude-*-4.5`、`deepseek-3.2`、`glm-5`、`qwen3-coder-next` 等）仍走提示词开关。
+
+> Claude 4.6 起的模型以前也走提示词开关，但它们把 `<thinking_mode>` 标签当普通文本忽略，不论客户端选什么档位都只按目录默认档思考（`claude-opus-5.5` 是 `medium`），所以调档位没有效果。真机对比同一道计数题：改用字段后 `max` 档的思考量约为原来的 3 倍、耗时 80–105 秒，`low` 档约 30 秒。
 
 **调度与保号**：与其它平台共用选号、冷却、熔断、会话粘性。错误处置按 Kiro 语义：429 软冷却退避；账号封禁（`TEMPORARILY_SUSPENDED`）或登录失效停用；401/403 标记待刷新并短冷却（API Key 被拒直接停用）；额度耗尽硬冷却到下次重置；模型对该号不可用只锁该模型；容量不足（`INSUFFICIENT_MODEL_CAPACITY`）503 不换号。一个入口返回限流 / 5xx 或连不上时会换下一个入口（三个入口的额度桶不同），换之前先停约 0.4 秒（±25% 抖动），避免对同一账号在一秒内连发三次；鉴权 / 封禁 / 额度类错误不换入口。出站请求只带 AWS SDK 风格的头，入站请求的任何头（包括 Claude Code 的 `user-agent`、`anthropic-beta`）和客户端 IP 都不会传给 Kiro 上游。非流式请求遇到上游截断会在同一个号上重试两次。输出过长（已有输出后上游报 `ContentLengthExceededException`）和上下文用满（`contextUsagePercentage` ≥ 100 且没有结束原因）按 `finish_reason: "length"` 正常收尾，已经输出的内容不作废；还没有输出就报同一个异常是输入过长，不重试、不换入口。Kiro 没有签到：「全部签到」与定时签到对 Kiro 账号只刷新额度；token 保活、额度刷新跟随 `schedule`。跨平台回退顺序：WorkBuddy → Qoder → Kiro、Qoder → WorkBuddy → Kiro、Kiro → WorkBuddy → Qoder。
 

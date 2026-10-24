@@ -3,7 +3,9 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -288,6 +290,58 @@ func TestAnthropicStreamErrorFrame(t *testing.T) {
 	for _, e := range evs {
 		if e.name == "message_stop" {
 			t.Error("message_stop must not follow an error event")
+		}
+	}
+}
+
+// claudeCatalogUpstream 假 Kiro 上游：目录里 claude-opus-5.5 带 adaptive thinking 的 schema（真实目录原文），
+// 推理入口记录请求体并回一段固定的流。
+type claudeCatalogUpstream struct{ kiroUpstream }
+
+func (f *claudeCatalogUpstream) RoundTrip(r *http.Request) (*http.Response, error) {
+	if strings.HasSuffix(r.URL.Path, "/ListAvailableModels") {
+		body := `{"models":[{"modelId":"claude-opus-5.5","modelName":"Claude Opus 5.5","additionalModelRequestFieldsSchema":` +
+			`{"type":"object","properties":{"thinking":{"type":"object","properties":{"type":{"type":"string","enum":["adaptive"]}},"required":["type"]},` +
+			`"output_config":{"type":"object","properties":{"effort":{"type":"string","enum":["low","medium","high","xhigh","max"],"default":"medium"}}}},"additionalProperties":false}}]}`
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}, Request: r}, nil
+	}
+	return f.kiroUpstream.RoundTrip(r)
+}
+
+// Claude Desktop 的写法（thinking.type=adaptive + output_config.effort）到了 Kiro 必须变成原生字段：
+// claude-opus-5.5 不认 <thinking_mode> 提示词，只认 additionalModelRequestFields。
+func TestAnthropicAdaptiveThinkingReachesKiroAsFields(t *testing.T) {
+	up := &claudeCatalogUpstream{kiroUpstream{stream: bytes.Join([][]byte{
+		kiroESFrame("reasoningContentEvent", map[string]any{"text": "counting"}),
+		kiroESFrame("assistantResponseEvent", map[string]any{"content": "512"}),
+		kiroESFrame("metadataEvent", map[string]any{"stopReason": "end_turn"}),
+	}, nil)}}
+	acct := kiroAcct("k1")
+	h, _, rl := newKiroHandler(t, nil, up, nil, acct)
+	if _, err := h.cfg.Kiro.Client.RefreshModels(context.Background(), kiroacct.Cred(acct)); err != nil {
+		t.Fatalf("catalog: %v", err)
+	}
+	for _, effort := range []string{"low", "max"} {
+		rec := postAnthropic(h, "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":32000,"stream":true,
+			"thinking":{"type":"adaptive"},"output_config":{"effort":"`+effort+`"},
+			"messages":[{"role":"user","content":"count"}]}`, nil)
+		if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"thinking_delta"`) {
+			t.Fatalf("%s: status=%d body=%s", effort, rec.Code, rec.Body.String())
+		}
+		var sent struct {
+			Extra json.RawMessage `json:"additionalModelRequestFields"`
+		}
+		ob := up.lastBody()
+		_ = json.Unmarshal([]byte(ob), &sent)
+		want := `{"output_config":{"effort":"` + effort + `"},"thinking":{"type":"adaptive"}}`
+		if string(sent.Extra) != want {
+			t.Errorf("%s: additionalModelRequestFields = %s, want %s", effort, sent.Extra, want)
+		}
+		if strings.Contains(ob, "thinking_mode") {
+			t.Errorf("%s: the prompt switch must not be injected for adaptive models", effort)
+		}
+		if e := lastEvent(t, rl); e.ReasoningEffortOut != effort {
+			t.Errorf("%s: request log effort = %q", effort, e.ReasoningEffortOut)
 		}
 	}
 }

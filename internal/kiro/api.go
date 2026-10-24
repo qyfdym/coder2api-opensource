@@ -426,7 +426,8 @@ func (c *Client) ListModels(ctx context.Context, cred Cred) ([]Model, *Error) {
 			continue
 		}
 		mm := Model{ID: m.ModelID, Name: m.ModelName, Description: m.Description, RateMultiplier: m.RateMultiplier}
-		mm.Efforts, mm.DefaultEffort = nativeEffortSchema(m.EffortSchema)
+		es := parseEffortSchema(m.EffortSchema)
+		mm.Efforts, mm.DefaultEffort, mm.EffortField, mm.ThinkingTypes = es.efforts, es.def, es.field, es.thinkingTypes
 		if m.TokenLimits != nil {
 			mm.MaxInput, mm.MaxOutput = m.TokenLimits.MaxInputTokens, m.TokenLimits.MaxOutputTokens
 		}
