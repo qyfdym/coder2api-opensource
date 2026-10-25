@@ -1913,6 +1913,14 @@ func (h *Handler) applyErrorPolicy(uid string, kind upstream.ErrKind, body, mode
 		// 到这里属防御路径（status>=400 但分类成功），语义不明不喂。
 		if kind == upstream.ErrClient {
 			h.cfg.Pool.NoteFailures(uid)
+			// 401（access token 被拒，多是网关层的 HTML 页、没有业务码）：把 token 标成过期，
+			// 下次选中先刷新验证——刷新成功即恢复，返回 12153 则按「refresh session dead」禁用。
+			// 不这样做的话 60 天有效期内永远不会刷新，账号会一直被选中、一直 401。
+			if uerr != nil && uerr.Status == http.StatusUnauthorized {
+				if a := h.cfg.Pool.AuthByUID(uid); a != nil && a.IsWorkBuddy() {
+					a.SetTokens("", "", 0)
+				}
+			}
 		}
 	}
 }

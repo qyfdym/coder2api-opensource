@@ -104,6 +104,10 @@ type Scheduler struct {
 	// 供面板「到期提醒」标注数据年龄：卡片展示的是这份快照，必须让年龄可读，
 	// 否则界面 5 秒轮询会让人误以为数据也是 5 秒级新鲜。
 	lastBalanceRefresh atomic.Int64
+
+	// authChecks 各账号最近一次「401 → 刷新验证」的时刻（见 authcheck.go），限频用。
+	authMu     sync.Mutex
+	authChecks map[string]time.Time
 }
 
 // New 构建。
@@ -500,7 +504,14 @@ func (s *Scheduler) RunCheckinNow() {
 		// 下方余额查询照常跑（企业额度走 get-enterprise-user-usage 口径，且是
 		// credit_floor 判定与面板额度展示的唯一数据源）。
 		if !a.IsEnterprise() {
-			if err := s.cfg.Upstream.DailyCheckin(a); err != nil {
+			err := s.cfg.Upstream.DailyCheckin(a)
+			if err != nil && s.recoverAuth("checkin", st.UID, a, err) {
+				err = s.cfg.Upstream.DailyCheckin(a) // 换到新 token 后重试一次
+			}
+			if err != nil && s.loginDeadNow(st.UID) {
+				continue // 登录已失效（刚判定并禁用）：余额查询也只会再拿一次 401
+			}
+			if err != nil {
 				// "今天已签到"是幂等成功（上游对重复签到返回 code!=0），不再当失败打 error 行。
 				if upstream.IsAlreadyCheckin(err) {
 					s.cfg.Pool.NoteCheckinDone(st.UID)
@@ -519,8 +530,13 @@ func (s *Scheduler) RunCheckinNow() {
 		// 分桶查余额：配置窗口内的积分单独标记，同时记录最早未来到期批次与
 		// 按自然日聚合的全部批次（首页快照与「检查」共用同一口径）。
 		remain, total, expiring, earliestAt, earliestRemaining, buckets, err := s.cfg.Upstream.UserResourceSnapshot(a, expiringSoon)
+		if err != nil && s.recoverAuth("user-resource", st.UID, a, err) {
+			remain, total, expiring, earliestAt, earliestRemaining, buckets, err = s.cfg.Upstream.UserResourceSnapshot(a, expiringSoon)
+		}
 		if err != nil {
-			log.Printf("user-resource %s: %v", logfmt.Label(st.UID, st.Nickname), err)
+			if !s.loginDeadNow(st.UID) {
+				log.Printf("user-resource %s: %v", logfmt.Label(st.UID, st.Nickname), err)
+			}
 			continue
 		}
 		s.cfg.Pool.ReenableIfCredits(st.UID, remain, total)
@@ -678,7 +694,9 @@ func (s *Scheduler) RunBalanceRefreshNow() {
 	expiringSoon := s.ExpiringSoonWindow()
 	includeDisabled := s.includeDisabledInTasks()
 	for _, st := range s.cfg.Pool.List() {
-		if st.Disabled && !includeDisabled {
+		// 登录已失效的号即使打开了 include_disabled_in_tasks 也不刷：每 5 分钟只会再拿一次 401，
+		// 重新登录后（面板登录会复活账号）自然恢复。
+		if st.Disabled && (!includeDisabled || loginDead(st.DisabledReason)) {
 			continue
 		}
 		a := s.cfg.Pool.AuthByUID(st.UID)
@@ -697,8 +715,13 @@ func (s *Scheduler) RunBalanceRefreshNow() {
 				return
 			}
 			remain, total, expiring, earliestAt, earliestRemaining, buckets, err := s.cfg.Upstream.UserResourceSnapshot(a, expiringSoon)
+			if err != nil && s.recoverAuth("balance", uid, a, err) {
+				remain, total, expiring, earliestAt, earliestRemaining, buckets, err = s.cfg.Upstream.UserResourceSnapshot(a, expiringSoon)
+			}
 			if err != nil {
-				log.Printf("balance %s: %v", logfmt.Label(uid, a.Nickname), err)
+				if !s.loginDeadNow(uid) {
+					log.Printf("balance %s: %v", logfmt.Label(uid, a.Nickname), err)
+				}
 				return
 			}
 			s.cfg.Pool.ReenableIfCredits(uid, remain, total)

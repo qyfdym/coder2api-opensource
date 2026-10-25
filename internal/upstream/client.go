@@ -97,8 +97,39 @@ type Error struct {
 }
 
 func (e *Error) Error() string {
-	return fmt.Sprintf("upstream %s (http %d): %s", e.Kind, e.Status, e.Msg)
+	return fmt.Sprintf("upstream %s (http %d): %s", e.Kind, e.Status, displayMsg(e.Msg))
 }
+
+// htmlTitle 网关错误页（openresty / APISIX 的 401、403、502 等）里的 <title>。
+var htmlTitle = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+
+// displayMsg 错误文本的单行展示形态（只用于 Error()，Msg 原文不动：分类与透传仍用原文）。
+// HTML 错误页压成 `HTML page "<title>"`，其余把换行折成空格——多行原文会在日志里拆成好几行，
+// 后面几行没有账号标签，看不出属于谁。
+func displayMsg(msg string) string {
+	lower := strings.ToLower(msg)
+	if strings.Contains(lower, "<html") || strings.Contains(lower, "<!doctype html") {
+		if m := htmlTitle.FindStringSubmatch(msg); m != nil {
+			if t := strings.Join(strings.Fields(m[1]), " "); t != "" {
+				return `HTML page "` + t + `"`
+			}
+		}
+		return "HTML page"
+	}
+	return strings.Join(strings.Fields(msg), " ")
+}
+
+// IsAuthRejected 报告 err 是否为「access token 被上游拒绝」（HTTP 401，且不是已经能确定会话
+// 已死的 12153）。WorkBuddy 的 401 常是网关层的 HTML 页（openresty / APISIX
+// 「401 Authorization Required」），没有业务信封，Classify 只能把它归成 ErrClient；调用方据此
+// 先刷新 token 验证，而不是把它当成一次普通的未知失败。
+func IsAuthRejected(err error) bool {
+	var ue *Error
+	return errors.As(err, &ue) && ue.Status == http.StatusUnauthorized && ue.Kind != ErrSessionDead
+}
+
+// IsSessionDead 报告 err 是否为 12153（refresh token / 登录会话已失效）。
+func IsSessionDead(err error) bool { return isSessionDead(err) }
 
 // hardMarkers 余额不足关键词（小写比较 + 中文原文比较双通道）。
 var hardMarkers = []string{
